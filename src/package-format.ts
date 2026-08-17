@@ -1,6 +1,6 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate/browser'
 import {
-  MAX_PACKAGE_BYTES, MAX_WALLPAPER_BYTES, MAX_VIDEO_BYTES, MAX_FONT_BYTES, decodeSkinManifest,
+  MAX_PACKAGE_BYTES, MAX_WALLPAPER_BYTES, MAX_VIDEO_BYTES, MAX_FONT_BYTES, MAX_VISUAL_ASSET_BYTES, decodeSkinManifest,
   type AssetKind, type SkinAssetDescriptor, type SkinManifestV1,
 } from './model.ts'
 
@@ -43,10 +43,13 @@ export async function describeAsset(id: string, kind: AssetKind, blob: Blob): Pr
   const bytes = new Uint8Array(await blob.arrayBuffer())
   const mimeType = sniffMime(bytes)
   if (mimeType === undefined) throw new SkinPackageError('invalid-asset')
-  const mediaMime = mimeType.startsWith('image/') || mimeType.startsWith('video/')
+  const imageMime = mimeType.startsWith('image/')
+  const videoMime = mimeType.startsWith('video/')
   const mediaKind = kind === 'wallpaper' || kind === 'component-media'
-  if (mediaKind !== mediaMime) throw new SkinPackageError('invalid-asset')
-  const limit = mimeType.startsWith('video/') ? MAX_VIDEO_BYTES : mediaKind ? MAX_WALLPAPER_BYTES : MAX_FONT_BYTES
+  if (mediaKind && !imageMime && !videoMime) throw new SkinPackageError('invalid-asset')
+  if (kind === 'visual-asset' && !imageMime) throw new SkinPackageError('invalid-asset')
+  if ((kind === 'ui-font' || kind === 'code-font') && mimeType !== 'font/woff2') throw new SkinPackageError('invalid-asset')
+  const limit = kind === 'visual-asset' ? MAX_VISUAL_ASSET_BYTES : videoMime ? MAX_VIDEO_BYTES : mediaKind ? MAX_WALLPAPER_BYTES : MAX_FONT_BYTES
   if (bytes.byteLength > limit) throw new SkinPackageError('too-large')
   return {
     id,

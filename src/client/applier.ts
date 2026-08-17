@@ -1,7 +1,10 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ComponentMediaRule, SkinManifestV1, SkinMode, ThemeTokenModes } from '../model.ts'
+import { COPY_SLOT_IDS, VISUAL_ASSET_SLOT_IDS, type CopySlotId, type SkinLocale, type VisualAssetSlotId } from '../skin-slots.ts'
 import { buildThemeTokenOverrides } from '../tokens.ts'
+import { defaultCopyValue, findCopySlotTargets, findVisualSlotTargets, type CopyTargetProperty } from './semantic-slots.ts'
 
 const SOURCE = 'dsh-skin-studio'
 const SYSTEM_UI = '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif'
@@ -19,6 +22,20 @@ interface ComponentLayerState {
 interface ComponentTargetState {
   position: string
   isolation: string
+}
+
+interface VisualSlotTargetState {
+  original: HTMLElement | SVGElement
+  replacement: HTMLImageElement
+  display: string
+  observedParent: Element | null
+}
+
+interface CopySlotTargetState {
+  element: HTMLElement
+  property: CopyTargetProperty
+  original: string
+  lastApplied: string
 }
 
 export class SkinApplier {
@@ -43,17 +60,25 @@ export class SkinApplier {
   private componentVideos = new Map<HTMLSpanElement, HTMLVideoElement>()
   private visibleComponentVideos = new Set<HTMLVideoElement>()
   private componentFrame: number | undefined
+  private visualSlotTargets = new Map<VisualAssetSlotId, Map<Element, VisualSlotTargetState>>()
+  private copySlotTargets = new Map<CopySlotId, Map<HTMLElement, Map<CopyTargetProperty, CopySlotTargetState>>>()
+  private semanticAssetUrls = new Map<string, string>()
+  private semanticObserver: MutationObserver | undefined
+  private semanticResizeObserver: ResizeObserver | undefined
+  private semanticFrame: number | undefined
   private faces: FontFace[] = []
   private fontUrls: string[] = []
   private revision = 0
   private current: SkinManifestV1 | null = null
   private assets = new Map<string, Blob>()
   private mode: SkinMode
+  private locale: SkinLocale
   private motionQuery: MediaQueryList | undefined
   private reduceMotion = false
 
   constructor(private readonly ctx: ClientContext) {
     this.mode = ctx.theme.getTheme().active.colorScheme
+    this.locale = ctx.locale?.getLocale().active ?? 'zh'
     if (typeof matchMedia !== 'undefined') {
       this.motionQuery = matchMedia('(prefers-reduced-motion: reduce)')
       this.reduceMotion = this.motionQuery.matches
@@ -65,6 +90,16 @@ export class SkinApplier {
     this.mode = mode
     this.paintBackdrop()
     this.paintComponentMedia()
+  }
+
+  setLocale(locale: SkinLocale): void {
+    this.locale = locale
+    for (const [slotId, elements] of this.copySlotTargets) {
+      for (const properties of elements.values()) {
+        for (const state of properties.values()) state.original = defaultCopyValue(slotId, locale, state.property)
+      }
+    }
+    this.refreshSemanticOverrides()
   }
 
   private onMotionPreferenceChange = (event: MediaQueryListEvent): void => {
@@ -120,6 +155,240 @@ export class SkinApplier {
     this.releaseOverride = nextRelease
     await this.loadBackdrop(skin)
     this.loadComponentMedia(skin)
+    this.loadSemanticOverrides(skin)
+  }
+
+  private loadSemanticOverrides(skin: SkinManifestV1): void {
+    for (const assetId of Object.values(skin.visualAssetOverrides)) {
+      if (this.semanticAssetUrls.has(assetId)) continue
+      const blob = this.assets.get(assetId)
+      const descriptor = skin.assets.find(asset => asset.id === assetId && asset.kind === 'visual-asset')
+      if (blob !== undefined && descriptor !== undefined) this.semanticAssetUrls.set(assetId, URL.createObjectURL(blob))
+    }
+    const hasVisualOverrides = Object.keys(skin.visualAssetOverrides).length > 0
+    const hasCopyOverrides = Object.keys(skin.copyOverrides).length > 0
+    if (!hasVisualOverrides && !hasCopyOverrides) return
+    if (typeof MutationObserver !== 'undefined') {
+      this.semanticObserver = new MutationObserver(this.scheduleSemanticRefresh)
+      this.semanticObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ['aria-label', 'aria-labelledby', 'placeholder'],
+      })
+    }
+    if (hasVisualOverrides) {
+      window.addEventListener('resize', this.scheduleSemanticRefresh)
+      if (typeof ResizeObserver !== 'undefined') this.semanticResizeObserver = new ResizeObserver(this.scheduleSemanticRefresh)
+      const revision = this.revision
+      void document.fonts?.ready.then(() => {
+        if (this.revision === revision) this.scheduleSemanticRefresh()
+      })
+    }
+    this.refreshSemanticOverrides()
+  }
+
+  private createVisualSlotTarget(target: Element, slotId: VisualAssetSlotId, url: string): VisualSlotTargetState | undefined {
+    if (!(target instanceof HTMLElement) && !(target instanceof SVGElement)) return undefined
+    const computed = getComputedStyle(target)
+    const replacement = document.createElement('img')
+    replacement.dataset.dshSkinStudioVisualSlot = slotId
+    replacement.alt = ''
+    replacement.draggable = false
+    replacement.ariaHidden = 'true'
+    replacement.src = url
+    const className = target.getAttribute('class')
+    if (className !== null) replacement.setAttribute('class', className)
+    Object.assign(replacement.style, {
+      display: computed.display === 'none' ? 'inline-block' : computed.display,
+      width: 'auto',
+      objectFit: 'contain',
+      objectPosition: 'center',
+      aspectRatio: 'auto',
+      maxWidth: 'none',
+      maxHeight: 'none',
+      pointerEvents: 'none',
+    })
+    const state = { original: target, replacement, display: target.style.display, observedParent: target.parentElement }
+    if (state.observedParent !== null) this.semanticResizeObserver?.observe(state.observedParent)
+    replacement.addEventListener('load', () => { this.syncVisualSlotSize(state) }, { once: true })
+    this.syncVisualSlotSize(state)
+    target.after(replacement)
+    return state
+  }
+
+  private syncVisualSlotSize(state: VisualSlotTargetState): void {
+    const attributeDimension = (axis: 'width' | 'height'): string | undefined => {
+      const attribute = state.original.getAttribute(axis)
+      return attribute !== null && /^\d+(?:\.\d+)?$/.test(attribute) ? `${attribute}px` : undefined
+    }
+    const attributeWidth = attributeDimension('width')
+    const attributeHeight = attributeDimension('height')
+    let rect: DOMRect | undefined
+    let computed: CSSStyleDeclaration | undefined
+    if (attributeWidth === undefined || attributeHeight === undefined) {
+      state.original.style.display = state.display
+      rect = state.original.getBoundingClientRect()
+      computed = getComputedStyle(state.original)
+    }
+    const layoutDimension = (axis: 'width' | 'height'): string | undefined => {
+      if (rect === undefined || computed === undefined) return undefined
+      const measured = rect[axis]
+      if (measured > 0) return `${measured}px`
+      const fallback = computed[axis]
+      return fallback !== '' && fallback !== 'auto' && fallback !== 'none' ? fallback : undefined
+    }
+    const width = attributeWidth ?? layoutDimension('width')
+    const height = attributeHeight ?? layoutDimension('height')
+    if (width !== undefined && height !== undefined
+      && state.replacement.naturalWidth > 0 && state.replacement.naturalHeight > 0) {
+      const targetWidth = Number.parseFloat(width)
+      const targetHeight = Number.parseFloat(height)
+      const scale = Math.max(
+        targetWidth / state.replacement.naturalWidth,
+        targetHeight / state.replacement.naturalHeight,
+      )
+      if (Number.isFinite(scale) && scale > 0) {
+        state.replacement.style.width = `${state.replacement.naturalWidth * scale}px`
+        state.replacement.style.height = `${state.replacement.naturalHeight * scale}px`
+      }
+    } else {
+      if (width !== undefined) state.replacement.style.width = width
+      if (height !== undefined) state.replacement.style.height = height
+    }
+    state.original.style.display = 'none'
+  }
+
+  private removeVisualSlotTarget(state: VisualSlotTargetState): void {
+    if (state.observedParent !== null) this.semanticResizeObserver?.unobserve(state.observedParent)
+    if (state.original.isConnected) state.original.style.display = state.display
+    state.replacement.remove()
+  }
+
+  private readCopyTarget(state: Pick<CopySlotTargetState, 'element' | 'property'>): string {
+    if (state.property === 'text') return state.element.textContent ?? ''
+    return state.element.getAttribute(state.property) ?? ''
+  }
+
+  private writeCopyTarget(state: Pick<CopySlotTargetState, 'element' | 'property'>, value: string): void {
+    if (state.property === 'text') {
+      if (state.element.textContent !== value) state.element.textContent = value
+      return
+    }
+    if (state.element.getAttribute(state.property) !== value) state.element.setAttribute(state.property, value)
+  }
+
+  private removeCopySlotTarget(slotId: CopySlotId, state: CopySlotTargetState): void {
+    const current = this.readCopyTarget(state)
+    if (current !== state.lastApplied) state.original = current
+    this.writeCopyTarget(state, state.original)
+    if (state.element.getAttribute('data-dsh-skin-studio-copy-slot') === slotId) {
+      state.element.removeAttribute('data-dsh-skin-studio-copy-slot')
+    }
+  }
+
+  private refreshVisualSlots(): void {
+    if (this.current === null) return
+    for (const slotId of VISUAL_ASSET_SLOT_IDS) {
+      const assetId = this.current.visualAssetOverrides[slotId]
+      const url = assetId === undefined ? undefined : this.semanticAssetUrls.get(assetId)
+      const targets = url === undefined ? [] : findVisualSlotTargets(slotId)
+      const targetSet = new Set(targets)
+      const states = this.visualSlotTargets.get(slotId) ?? new Map<Element, VisualSlotTargetState>()
+      this.visualSlotTargets.set(slotId, states)
+      for (const [target, state] of states) {
+        if (!target.isConnected || !targetSet.has(target)) {
+          this.removeVisualSlotTarget(state)
+          states.delete(target)
+        } else this.syncVisualSlotSize(state)
+      }
+      if (url === undefined) continue
+      for (const target of targets) {
+        if (states.has(target)) continue
+        const state = this.createVisualSlotTarget(target, slotId, url)
+        if (state !== undefined) states.set(target, state)
+      }
+    }
+  }
+
+  private refreshCopySlots(): void {
+    if (this.current === null) return
+    for (const slotId of COPY_SLOT_IDS) {
+      const custom = this.current.copyOverrides[slotId]?.[this.locale]
+      const targets = custom === undefined ? [] : findCopySlotTargets(slotId)
+      const states = this.copySlotTargets.get(slotId) ?? new Map<HTMLElement, Map<CopyTargetProperty, CopySlotTargetState>>()
+      this.copySlotTargets.set(slotId, states)
+      for (const [element, properties] of states) {
+        for (const [property, state] of properties) {
+          const retained = targets.some(target => target.element === element && target.property === property)
+          if (!element.isConnected || !retained || custom === undefined) {
+            this.removeCopySlotTarget(slotId, state)
+            properties.delete(property)
+          }
+        }
+        if (properties.size === 0) states.delete(element)
+      }
+      if (custom === undefined) continue
+      for (const target of targets) {
+        let properties = states.get(target.element)
+        if (properties === undefined) {
+          properties = new Map()
+          states.set(target.element, properties)
+        }
+        let state = properties.get(target.property)
+        if (state === undefined) {
+          state = {
+            element: target.element,
+            property: target.property,
+            original: this.readCopyTarget(target),
+            lastApplied: custom,
+          }
+          properties.set(target.property, state)
+          target.element.setAttribute('data-dsh-skin-studio-copy-slot', slotId)
+        } else {
+          const current = this.readCopyTarget(state)
+          if (current !== state.lastApplied) state.original = current
+          state.lastApplied = custom
+        }
+        this.writeCopyTarget(state, custom)
+      }
+    }
+  }
+
+  private refreshSemanticOverrides(): void {
+    this.refreshVisualSlots()
+    this.refreshCopySlots()
+  }
+
+  private scheduleSemanticRefresh = (): void => {
+    if (this.semanticFrame !== undefined) cancelAnimationFrame(this.semanticFrame)
+    this.semanticFrame = requestAnimationFrame(() => {
+      this.semanticFrame = undefined
+      this.refreshSemanticOverrides()
+    })
+  }
+
+  private clearSemanticOverrides(): void {
+    window.removeEventListener('resize', this.scheduleSemanticRefresh)
+    this.semanticObserver?.disconnect()
+    this.semanticObserver = undefined
+    this.semanticResizeObserver?.disconnect()
+    this.semanticResizeObserver = undefined
+    if (this.semanticFrame !== undefined) cancelAnimationFrame(this.semanticFrame)
+    this.semanticFrame = undefined
+    for (const states of this.visualSlotTargets.values()) {
+      for (const state of states.values()) this.removeVisualSlotTarget(state)
+    }
+    this.visualSlotTargets.clear()
+    for (const [slotId, elements] of this.copySlotTargets) {
+      for (const properties of elements.values()) {
+        for (const state of properties.values()) this.removeCopySlotTarget(slotId, state)
+      }
+    }
+    this.copySlotTargets.clear()
+    for (const url of this.semanticAssetUrls.values()) URL.revokeObjectURL(url)
+    this.semanticAssetUrls.clear()
   }
 
   private async loadFonts(skin: SkinManifestV1, tokens: Record<string, ThemeTokenModes>): Promise<void> {
@@ -502,6 +771,7 @@ export class SkinApplier {
   }
 
   private clearVisualAssets(): void {
+    this.clearSemanticOverrides()
     this.clearComponentMedia()
     this.stopBackdropLayout()
     if (this.media instanceof HTMLVideoElement) {

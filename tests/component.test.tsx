@@ -23,7 +23,7 @@ function controller(): SkinStudioController {
       '--dsw-alias-bg-base', '--dsw-specific-input-major', '--dsw-alias-button-primary-fill',
       '--dsw-specific-sidebar-fill', '--dsw-specific-bubble', '--dsw-alias-border-l2',
       '--dsw-alias-state-success-primary',
-    ], connectActions: vi.fn(),
+    ], activeLocale: () => 'en', connectActions: vi.fn(),
   }
 }
 
@@ -71,7 +71,60 @@ describe('SkinStudioRow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open Skin Studio' }))
     expect(screen.getByRole('tab', { name: 'Basic editor' })).toBeDisabled()
     expect(screen.getByRole('tab', { name: 'GUI components' })).toBeDisabled()
+    expect(screen.getByRole('tab', { name: 'Visual assets' })).toBeDisabled()
+    expect(screen.getByRole('tab', { name: 'Copy' })).toBeDisabled()
     expect(screen.getByRole('tab', { name: 'Import & export' })).toBeEnabled()
+  })
+
+  it('keeps visual asset and copy overrides in dedicated editor pages', async () => {
+    const skin = createBlankSkin('Semantic skin')
+    const api = controller()
+    const state = { skins: [skin], activeId: skin.id, ready: true, persistent: true, revision: 1 }
+    render(<SkinStudioRow {...({
+      t: (key: SkinStudioKey) => en[key],
+      useStore: (select: (value: typeof state) => unknown) => select(state),
+      controller: api,
+    } as unknown as SkinStudioRowProps)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open Skin Studio' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Visual assets' }))
+    expect(screen.getByRole('heading', { name: 'Built-in visual assets' })).toBeInTheDocument()
+    expect(screen.getByText('Empty-state whale mark')).toBeInTheDocument()
+    expect(screen.getAllByText('Unavailable in this DSH view').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Copy' }))
+    expect(screen.getByRole('heading', { name: 'Interface copy' })).toBeInTheDocument()
+    expect(screen.getByText('Welcome title')).toBeInTheDocument()
+    const english = screen.getByLabelText('Welcome title English override')
+    fireEvent.change(english, { target: { value: 'Build with Miku today' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply & save' }))
+    await waitFor(() => { expect(api.saveAndActivate).toHaveBeenCalledOnce() })
+    expect(vi.mocked(api.saveAndActivate).mock.calls[0]?.[0].copyOverrides['welcome.title']?.en).toBe('Build with Miku today')
+  })
+
+  it('uploads a safe raster image into a visual asset slot', async () => {
+    const skin = createBlankSkin('Visual upload skin')
+    const api = controller()
+    const state = { skins: [skin], activeId: skin.id, ready: true, persistent: true, revision: 1 }
+    render(<SkinStudioRow {...({
+      t: (key: SkinStudioKey) => en[key],
+      useStore: (select: (value: typeof state) => unknown) => select(state),
+      controller: api,
+    } as unknown as SkinStudioRowProps)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open Skin Studio' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Visual assets' }))
+    const input = document.querySelector<HTMLInputElement>('input[data-visual-slot-upload="hero-whale-logo"]')!
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    const png = new File([bytes], 'hero.png', { type: 'image/png' })
+    Object.defineProperty(png, 'arrayBuffer', { value: async () => bytes.slice().buffer })
+    fireEvent.change(input, { target: { files: [png] } })
+    await waitFor(() => { expect(screen.getByRole('button', { name: 'Restore this asset' })).toBeInTheDocument() })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply & save' }))
+    await waitFor(() => { expect(api.saveAndActivate).toHaveBeenCalledOnce() })
+    const saved = vi.mocked(api.saveAndActivate).mock.calls[0]?.[0]
+    expect(saved?.visualAssetOverrides['hero-whale-logo']).toMatch(/^asset-/)
+    expect(saved?.assets[0]?.kind).toBe('visual-asset')
   })
 
   it('asks before closing an unsaved new skin and restores focus after discarding', async () => {

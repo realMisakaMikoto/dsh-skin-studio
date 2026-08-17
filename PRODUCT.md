@@ -16,7 +16,7 @@ DeepSeek Harness users who want to create and switch distinctive interface skins
 
 ## Product Purpose
 
-dsh-skin-studio lets people create, save, preview, activate, import, and export multiple DSH skins. A skin carries light and dark colors, a main image or looping video background, media backgrounds assigned to visible component types, and UI/code fonts in a portable package.
+dsh-skin-studio lets people create, save, preview, activate, import, and export multiple DSH skins. A skin carries light and dark colors, a main image or looping video background, media backgrounds assigned to visible component types, UI/code fonts, semantic replacements for selected built-in DSH visuals, and localized interface-copy overrides in a portable package.
 
 ## Positioning
 
@@ -34,7 +34,9 @@ The plugin is installed into the DSH `web` profile and appears under Settings ->
 - Browser-local IndexedDB persistence and same-origin tab synchronization.
 - PNG, JPEG, WebP, MP4, or WebM background media and WOFF2 font assets only.
 - A visual picker for assigning independent image or muted looping video backgrounds to any visible DSH component type.
-- No arbitrary CSS, HTML, JavaScript, Host-side sync, online marketplace, layout editing, or global radius editing in v3.
+- A versioned Visual Asset Slot catalog for safe PNG/JPEG/WebP replacement of stable DSH brand, hero, and workspace visuals.
+- A bilingual Copy Slot catalog for selected stable DSH labels and placeholders, rendered only as plain text.
+- No arbitrary CSS, HTML, JavaScript, selectors in the manifest, Host-side sync, online marketplace, layout editing, or global radius editing in v4.
 
 ## Brand Commitments
 

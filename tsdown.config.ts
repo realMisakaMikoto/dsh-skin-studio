@@ -3,6 +3,20 @@ import { basename, dirname, resolve as resolvePath } from 'node:path'
 import type { UserConfig } from 'tsdown'
 import { transform } from 'lightningcss'
 
+if (!('withResolvers' in Promise)) {
+  Object.assign(Promise, {
+    withResolvers<T>() {
+      let resolve!: (value: T | PromiseLike<T>) => void
+      let reject!: (reason?: unknown) => void
+      const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise
+        reject = rejectPromise
+      })
+      return { promise, resolve, reject }
+    },
+  })
+}
+
 const PACKAGE_ID = 'dsh-skin-studio'
 const CLIENT_EXTERNALS = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',

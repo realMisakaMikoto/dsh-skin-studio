@@ -105,6 +105,7 @@ describe('SkinStudioRow', () => {
   it('uploads a safe raster image into a visual asset slot', async () => {
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:visual-upload')
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    vi.spyOn(crypto.subtle, 'digest').mockResolvedValue(new Uint8Array(32).buffer)
     const skin = createBlankSkin('Visual upload skin')
     const api = controller()
     const state = { skins: [skin], activeId: skin.id, ready: true, persistent: true, revision: 1 }

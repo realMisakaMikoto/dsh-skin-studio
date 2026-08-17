@@ -10,7 +10,9 @@ import {
   PALETTE_ROLES, makeSkinId,
   type AssetKind, type ComponentMediaRule, type PaletteRole, type SkinManifestV1, type SkinMode,
 } from '../model.ts'
+import type { CopySlotId, SkinLocale, VisualAssetSlotId } from '../skin-slots.ts'
 import { createComponentTarget, describeComponentTarget, findPickableComponent } from './component-picker.ts'
+import { CopyOverrideEditor, VisualAssetEditor } from './SemanticEditors.tsx'
 import type { SkinStudioKey } from './locales.ts'
 import type { ConflictPolicy, SkinStudioController } from './controller.ts'
 import type { createSkinStudioStore } from './store.ts'
@@ -22,7 +24,7 @@ export type SkinStudioRowProps = PropsRuntime<'settings.general.item'>
   & PropsLocale<'dsh.skinStudio'>
   & SkinStudioInjected
 
-type Tab = 'library' | 'basic' | 'advanced' | 'package'
+type Tab = 'library' | 'basic' | 'advanced' | 'assets' | 'copy' | 'package'
 type AdvancedView = 'guided' | 'all'
 
 function copySkin(skin: SkinManifestV1): SkinManifestV1 { return structuredClone(skin) }
@@ -115,7 +117,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
   const studioRef = useRef<HTMLDivElement | null>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
   const discardReturnFocusRef = useRef<HTMLElement | null>(null)
-  const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({ library: null, basic: null, advanced: null, package: null })
+  const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({ library: null, basic: null, advanced: null, assets: null, copy: null, package: null })
 
   const selected = skins.find(skin => skin.id === selectedId) ?? null
   const active = skins.find(skin => skin.id === activeId) ?? null
@@ -131,8 +133,8 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
   const beginEdit = async (skin: SkinManifestV1, nextTab: Tab = 'basic'): Promise<void> => {
     setSelectedId(skin.id)
     setDraft(copySkin(skin))
-    setAssets(await controller.assets(skin.id))
     setTab(nextTab)
+    setAssets(await controller.assets(skin.id))
     setContrastConfirmed(false)
     setMediaReadabilityConfirmed(false)
     setEditingTokens(new Set(Object.keys(skin.overrides)))
@@ -440,6 +442,60 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
     })
   }
 
+  const pickVisualAsset = async (slotId: VisualAssetSlotId, file: File | undefined): Promise<void> => {
+    if (file === undefined || draft === null) return
+    setAssetError(null)
+    try {
+      const assetId = makeSkinId('asset')
+      const descriptor = await describeAsset(assetId, 'visual-asset', file)
+      const oldAssetId = draft.visualAssetOverrides[slotId]
+      const oldAssetIsShared = oldAssetId !== undefined && Object.entries(draft.visualAssetOverrides)
+        .some(([otherSlot, candidate]) => otherSlot !== slotId && candidate === oldAssetId)
+      const nextAssets = new Map(assets)
+      if (oldAssetId !== undefined && !oldAssetIsShared) nextAssets.delete(oldAssetId)
+      nextAssets.set(assetId, file)
+      setAssets(nextAssets)
+      updateDraft(next => {
+        const previous = next.visualAssetOverrides[slotId]
+        const shared = previous !== undefined && Object.entries(next.visualAssetOverrides)
+          .some(([otherSlot, candidate]) => otherSlot !== slotId && candidate === previous)
+        if (previous !== undefined && !shared) next.assets = next.assets.filter(asset => asset.id !== previous)
+        next.assets.push(descriptor)
+        next.visualAssetOverrides[slotId] = assetId
+      })
+    } catch (error) {
+      setAssetError(error instanceof SkinPackageError && error.code === 'too-large' ? 'too-large' : 'invalid')
+    }
+  }
+
+  const removeVisualAsset = (slotId: VisualAssetSlotId): void => {
+    if (draft === null) return
+    const assetId = draft.visualAssetOverrides[slotId]
+    const shared = assetId !== undefined && Object.entries(draft.visualAssetOverrides)
+      .some(([otherSlot, candidate]) => otherSlot !== slotId && candidate === assetId)
+    if (assetId !== undefined && !shared) {
+      const nextAssets = new Map(assets)
+      nextAssets.delete(assetId)
+      setAssets(nextAssets)
+    }
+    updateDraft(next => {
+      const previous = next.visualAssetOverrides[slotId]
+      delete next.visualAssetOverrides[slotId]
+      const stillUsed = previous !== undefined && Object.values(next.visualAssetOverrides).includes(previous)
+      if (previous !== undefined && !stillUsed) next.assets = next.assets.filter(asset => asset.id !== previous)
+    })
+  }
+
+  const updateCopyOverride = (slotId: CopySlotId, language: SkinLocale, value: string): void => {
+    updateDraft(next => {
+      const localized = { ...(next.copyOverrides[slotId] ?? {}) }
+      if (value.trim() === '') delete localized[language]
+      else localized[language] = value
+      if (Object.keys(localized).length === 0) delete next.copyOverrides[slotId]
+      else next.copyOverrides[slotId] = localized
+    })
+  }
+
   const applyDraft = async (): Promise<void> => {
     if (draft === null || (issues.length > 0 && !contrastConfirmed) || (hasMediaReadabilityRisk && !mediaReadabilityConfirmed)) return
     setSaving(true)
@@ -516,7 +572,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
   const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>): void => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
-    const enabledTabs: Tab[] = draft === null ? ['library', 'package'] : ['library', 'basic', 'advanced', 'package']
+    const enabledTabs: Tab[] = draft === null ? ['library', 'package'] : ['library', 'basic', 'advanced', 'assets', 'copy', 'package']
     const current = Math.max(0, enabledTabs.indexOf(tab))
     let next = current
     if (event.key === 'Home') next = 0
@@ -532,7 +588,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
     return <div key={item} style={{ background: draft.overrides['--dsw-alias-bg-base']?.[item] ?? palette.background, color: draft.overrides['--dsw-alias-label-primary']?.[item] ?? palette.foreground }}><span>{t(`basic.mode.${item}`)}</span><strong>Aa</strong><i style={{ background: draft.overrides['--dsw-alias-brand-primary']?.[item] ?? palette.accent }} /></div>
   })}</div><label><input type="checkbox" checked={contrastConfirmed} onChange={event => { setContrastConfirmed(event.target.checked) }} />{t('contrast.confirm')}</label></div> : null
 
-  const footer = draft === null || (tab !== 'basic' && tab !== 'advanced') ? undefined : (
+  const footer = draft === null || !(['basic', 'advanced', 'assets', 'copy'] as Tab[]).includes(tab) ? undefined : (
     <div className={css.footerArea}>
       {saveStatus === 'success' && <span className={css.success} role="status">{t('action.saved')}</span>}
       {saveStatus === 'error' && <span className={css.error} role="alert">{t('action.saveError')}</span>}
@@ -574,8 +630,8 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
         {discardPending && <div className={css.discardPanel} role="alert"><div><strong>{t('discard.title')}</strong><p>{t('discard.description')}</p></div><div className={css.discardActions}><Button variant="outline" onClick={keepEditing}>{t('discard.keep')}</Button><Button variant="primary" onClick={closeNow}>{t('discard.confirm')}</Button></div></div>}
         <div className={css.status} role="status" data-warning={!persistent || undefined}>{persistent ? t('status.local') : t('status.volatile')}</div>
         <div className={css.tabs} role="tablist" aria-label={t('modal.title')}>
-          {(['library', 'basic', 'advanced', 'package'] as const).map(item => (
-            <button key={item} ref={node => { tabRefs.current[item] = node }} id={`skin-studio-tab-${item}`} type="button" role="tab" aria-selected={tab === item} aria-controls={`skin-studio-panel-${item}`} tabIndex={tab === item ? 0 : -1} disabled={draft === null && (item === 'basic' || item === 'advanced')} className={css.tab} onClick={() => { setTab(item) }} onKeyDown={onTabKeyDown}>
+          {(['library', 'basic', 'advanced', 'assets', 'copy', 'package'] as const).map(item => (
+            <button key={item} ref={node => { tabRefs.current[item] = node }} id={`skin-studio-tab-${item}`} type="button" role="tab" aria-selected={tab === item} aria-controls={`skin-studio-panel-${item}`} tabIndex={tab === item ? 0 : -1} disabled={draft === null && item !== 'library' && item !== 'package'} className={css.tab} onClick={() => { setTab(item) }} onKeyDown={onTabKeyDown}>
               {t(`tab.${item}` as SkinStudioKey)}
             </button>
           ))}
@@ -695,6 +751,32 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
             {contrastWarning}
             {advancedView === 'guided' ? <div className={css.componentGroups}>{guidedGroups.map(group => <section className={css.tokenGroup} key={group.id}><h3>{t(`advanced.group.${group.id}`)}</h3><div className={css.tokenList}>{group.tokens.map(token => renderTokenEditor(token.name, token))}</div></section>)}{guidedGroups.length === 0 && <p className={css.empty}>{t('advanced.empty')}</p>}</div>
               : <><label className={css.searchLabel}><span>{t('advanced.searchLabel')}</span><input className={css.search} type="search" placeholder={t('advanced.search')} value={tokenSearch} onChange={event => { setTokenSearch(event.target.value) }} /></label><div className={css.tokenList}>{visibleTokens.length === 0 && <p className={css.empty}>{t('advanced.empty')}</p>}{visibleTokens.map(name => renderTokenEditor(name, friendlyTokens.get(name)))}</div></>}
+          </section>
+        )}
+
+        {tab === 'assets' && draft !== null && (
+          <section id="skin-studio-panel-assets" role="tabpanel" aria-labelledby="skin-studio-tab-assets" className={css.page}>
+            <VisualAssetEditor
+              draft={draft}
+              assets={assets}
+              locale={controller.activeLocale()}
+              error={assetError}
+              t={t}
+              onPick={(slotId, file) => { void pickVisualAsset(slotId, file) }}
+              onRemove={removeVisualAsset}
+            />
+          </section>
+        )}
+
+        {tab === 'copy' && draft !== null && (
+          <section id="skin-studio-panel-copy" role="tabpanel" aria-labelledby="skin-studio-tab-copy" className={css.page}>
+            <CopyOverrideEditor
+              draft={draft}
+              locale={controller.activeLocale()}
+              t={t}
+              onChange={updateCopyOverride}
+              onReset={slotId => { updateDraft(next => { delete next.copyOverrides[slotId] }) }}
+            />
           </section>
         )}
 

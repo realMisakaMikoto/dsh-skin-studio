@@ -176,6 +176,123 @@ describe('SkinApplier', () => {
     applier.dispose()
   })
 
+  it('replaces semantic visual slots once and restores the original node', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:hero-mark')
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const root = document.createElement('div')
+    root.id = 'root'
+    root.innerHTML = '<main><svg viewBox="0 0 1051 468"></svg></main>'
+    document.body.append(root)
+    const original = root.querySelector<SVGElement>('svg')!
+    let visualWidth = 1000
+    let visualHeight = 1000
+    original.getBoundingClientRect = () => ({
+      x: 0, y: 0, top: 0, left: 0, right: visualWidth, bottom: visualHeight,
+      width: visualWidth, height: visualHeight, toJSON: () => ({}),
+    }) as DOMRect
+    const ctx = { theme: { getTheme: () => ({ active: { colorScheme: 'light' } }), overrideTokens: vi.fn(() => vi.fn()) } }
+    const skin = createBlankSkin('Visual slots')
+    skin.assets = [{ id: 'hero-mark', path: 'assets/hero-mark.png', kind: 'visual-asset', mimeType: 'image/png', size: 8, sha256: '0'.repeat(64) }]
+    skin.visualAssetOverrides['hero-backdrop-illustration'] = 'hero-mark'
+    const applier = new SkinApplier(ctx as never)
+    await applier.apply(skin, new Map([['hero-mark', new Blob(['image'], { type: 'image/png' })]]))
+    expect(original.style.display).toBe('none')
+    const replacement = root.querySelector<HTMLImageElement>('[data-dsh-skin-studio-visual-slot="hero-backdrop-illustration"]')!
+    Object.defineProperty(replacement, 'naturalWidth', { configurable: true, value: 200 })
+    Object.defineProperty(replacement, 'naturalHeight', { configurable: true, value: 300 })
+    replacement.dispatchEvent(new Event('load'))
+    expect(replacement.style.width).toBe('1000px')
+    expect(replacement.style.height).toBe('1500px')
+    expect(replacement.style.objectFit).toBe('contain')
+    expect(replacement.style.maxWidth).toBe('none')
+    visualWidth = 500
+    visualHeight = 500
+    window.dispatchEvent(new Event('resize'))
+    await new Promise(resolve => { window.setTimeout(resolve, 30) })
+    expect(replacement.style.width).toBe('500px')
+    expect(replacement.style.height).toBe('750px')
+    Object.defineProperty(replacement, 'naturalWidth', { configurable: true, value: 600 })
+    Object.defineProperty(replacement, 'naturalHeight', { configurable: true, value: 500 })
+    visualWidth = 1000
+    visualHeight = 1000
+    window.dispatchEvent(new Event('resize'))
+    await new Promise(resolve => { window.setTimeout(resolve, 30) })
+    expect(Number.parseFloat(replacement.style.width)).toBeCloseTo(600 * 1000 / 500)
+    expect(replacement.style.height).toBe('1000px')
+    expect(root.querySelectorAll('[data-dsh-skin-studio-visual-slot="hero-backdrop-illustration"]')).toHaveLength(1)
+    await applier.apply(skin, new Map([['hero-mark', new Blob(['image'], { type: 'image/png' })]]))
+    expect(root.querySelectorAll('[data-dsh-skin-studio-visual-slot="hero-backdrop-illustration"]')).toHaveLength(1)
+    await applier.apply(null)
+    expect(original.style.display).toBe('')
+    expect(root.querySelector('[data-dsh-skin-studio-visual-slot]')).toBeNull()
+    expect(revokeObjectURL).toHaveBeenCalled()
+    applier.dispose()
+  })
+
+  it('keeps title visual sizing stable when layout rectangles fluctuate during reload', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:stable-title')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const root = document.createElement('div')
+    root.id = 'root'
+    root.innerHTML = '<main><div><span><svg width="34" height="25" viewBox="0 0 23.16 17.04"></svg></span><span>探索未至之境</span><span>预览版</span></div></main>'
+    document.body.append(root)
+    const original = root.querySelector<SVGElement>('svg')!
+    const transientRect = vi.fn(() => ({
+      x: 0, y: 0, top: 0, left: 0, right: 340, bottom: 250,
+      width: 340, height: 250, toJSON: () => ({}),
+    }) as DOMRect)
+    original.getBoundingClientRect = transientRect
+    const ctx = { theme: { getTheme: () => ({ active: { colorScheme: 'light' } }), overrideTokens: vi.fn(() => vi.fn()) } }
+    const skin = createBlankSkin('Stable title visual')
+    skin.assets = [{ id: 'title-mark', path: 'assets/title-mark.png', kind: 'visual-asset', mimeType: 'image/png', size: 8, sha256: '0'.repeat(64) }]
+    skin.visualAssetOverrides['hero-whale-logo'] = 'title-mark'
+    const applier = new SkinApplier(ctx as never)
+    await applier.apply(skin, new Map([['title-mark', new Blob(['image'], { type: 'image/png' })]]))
+    const replacement = root.querySelector<HTMLImageElement>('[data-dsh-skin-studio-visual-slot="hero-whale-logo"]')!
+    Object.defineProperty(replacement, 'naturalWidth', { configurable: true, value: 600 })
+    Object.defineProperty(replacement, 'naturalHeight', { configurable: true, value: 500 })
+    replacement.dispatchEvent(new Event('load'))
+    expect(Number.parseFloat(replacement.style.width)).toBeCloseTo(34)
+    expect(Number.parseFloat(replacement.style.height)).toBeCloseTo(500 * 34 / 600)
+    window.dispatchEvent(new Event('resize'))
+    await new Promise(resolve => { window.setTimeout(resolve, 30) })
+    expect(Number.parseFloat(replacement.style.width)).toBeCloseTo(34)
+    expect(Number.parseFloat(replacement.style.height)).toBeCloseTo(500 * 34 / 600)
+    expect(transientRect).not.toHaveBeenCalled()
+    applier.dispose()
+  })
+
+  it('applies localized copy slots, switches locale, and restores defaults', async () => {
+    const root = document.createElement('div')
+    root.id = 'root'
+    root.innerHTML = '<main><div><span><svg width="34" viewBox="0 0 23.16 17.04"></svg></span><span>探索未至之境</span><span>预览版</span></div></main>'
+    document.body.append(root)
+    const title = root.querySelectorAll<HTMLElement>('span')[1]!
+    const ctx = { theme: { getTheme: () => ({ active: { colorScheme: 'light' } }), overrideTokens: vi.fn(() => vi.fn()) } }
+    const skin = createBlankSkin('Copy slots')
+    skin.copyOverrides['welcome.title'] = { zh: '今天一起写代码', en: 'Build something today' }
+    const applier = new SkinApplier(ctx as never)
+    await applier.apply(skin)
+    expect(title.textContent).toBe('今天一起写代码')
+    applier.setLocale('en')
+    expect(title.textContent).toBe('Build something today')
+    await applier.apply(null)
+    expect(title.textContent).toBe('Into the Unknown')
+    expect(title.hasAttribute('data-dsh-skin-studio-copy-slot')).toBe(false)
+    applier.dispose()
+  })
+
+  it('skips unavailable semantic slots without failing the skin', async () => {
+    const ctx = { theme: { getTheme: () => ({ active: { colorScheme: 'light' } }), overrideTokens: vi.fn(() => vi.fn()) } }
+    const skin = createBlankSkin('Unavailable slot')
+    skin.assets = [{ id: 'hero-mark', path: 'assets/hero-mark.png', kind: 'visual-asset', mimeType: 'image/png', size: 8, sha256: '0'.repeat(64) }]
+    skin.visualAssetOverrides['hero-whale-logo'] = 'hero-mark'
+    const applier = new SkinApplier(ctx as never)
+    await expect(applier.apply(skin, new Map([['hero-mark', new Blob(['image'], { type: 'image/png' })]]))).resolves.toBeUndefined()
+    expect(document.querySelector('[data-dsh-skin-studio-visual-slot]')).toBeNull()
+    applier.dispose()
+  })
+
   it('uses a still frame when reduced motion is requested and reacts to changes', async () => {
     let onChange: ((event: MediaQueryListEvent) => void) | undefined
     const mediaQuery = {

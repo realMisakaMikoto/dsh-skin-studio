@@ -1,9 +1,15 @@
+import {
+  COPY_SLOT_SET, COPY_SLOTS, SKIN_LOCALES, VISUAL_ASSET_SLOT_SET,
+  type CopySlotId, type SkinLocale, type VisualAssetSlotId,
+} from './skin-slots.ts'
+
 export const SKIN_FORMAT = 'dsh-skin-studio' as const
-export const SKIN_FORMAT_VERSION = 3 as const
+export const SKIN_FORMAT_VERSION = 4 as const
 export const MAX_PACKAGE_BYTES = 128 * 1024 * 1024
 export const MAX_WALLPAPER_BYTES = 15 * 1024 * 1024
 export const MAX_VIDEO_BYTES = 100 * 1024 * 1024
 export const MAX_FONT_BYTES = 5 * 1024 * 1024
+export const MAX_VISUAL_ASSET_BYTES = 5 * 1024 * 1024
 
 export const MODES = ['light', 'dark'] as const
 export type SkinMode = (typeof MODES)[number]
@@ -72,7 +78,7 @@ export interface ComponentMediaRule {
   dark: ComponentMediaMode
 }
 
-export type AssetKind = 'wallpaper' | 'component-media' | 'ui-font' | 'code-font'
+export type AssetKind = 'wallpaper' | 'component-media' | 'visual-asset' | 'ui-font' | 'code-font'
 
 export interface SkinAssetDescriptor {
   id: string
@@ -83,8 +89,12 @@ export interface SkinAssetDescriptor {
   sha256: string
 }
 
+export type VisualAssetOverrides = Partial<Record<VisualAssetSlotId, string>>
+export type LocalizedCopyOverride = Partial<Record<SkinLocale, string>>
+export type CopyOverrides = Partial<Record<CopySlotId, LocalizedCopyOverride>>
+
 /** Current public manifest stored as manifest.json inside a .dshskin ZIP container. */
-export interface SkinManifestV3 {
+export interface SkinManifestV4 {
   format: typeof SKIN_FORMAT
   formatVersion: typeof SKIN_FORMAT_VERSION
   id: string
@@ -96,14 +106,18 @@ export interface SkinManifestV3 {
   palettes: Record<SkinMode, SemanticPalette>
   overrides: AdvancedTokenOverrides
   appearance: SkinAppearance
+  visualAssetOverrides: VisualAssetOverrides
+  copyOverrides: CopyOverrides
   assets: SkinAssetDescriptor[]
 }
 
-export type SkinManifest = SkinManifestV3
-/** @deprecated Import SkinManifest or SkinManifestV3 for the current schema. */
-export type SkinManifestV2 = SkinManifestV3
-/** @deprecated Import SkinManifest or SkinManifestV3 for the current schema. */
-export type SkinManifestV1 = SkinManifestV3
+export type SkinManifest = SkinManifestV4
+/** @deprecated Import SkinManifest or SkinManifestV4 for the current schema. */
+export type SkinManifestV3 = SkinManifestV4
+/** @deprecated Import SkinManifest or SkinManifestV4 for the current schema. */
+export type SkinManifestV2 = SkinManifestV4
+/** @deprecated Import SkinManifest or SkinManifestV4 for the current schema. */
+export type SkinManifestV1 = SkinManifestV4
 
 export interface StoredAsset {
   skinId: string
@@ -119,7 +133,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:/
 const ALLOWED_MIME = new Set<SkinAssetDescriptor['mimeType']>([
   'image/png', 'image/jpeg', 'image/webp', 'video/mp4', 'video/webm', 'font/woff2',
 ])
-const ALLOWED_KIND = new Set<AssetKind>(['wallpaper', 'component-media', 'ui-font', 'code-font'])
+const ALLOWED_KIND = new Set<AssetKind>(['wallpaper', 'component-media', 'visual-asset', 'ui-font', 'code-font'])
 const ASSET_EXTENSION: Record<SkinAssetDescriptor['mimeType'], string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
@@ -156,7 +170,11 @@ export function migrateSkinManifest(value: unknown): unknown {
         appearance.surfaceOpacity = mode === 'light' ? 0.52 : 0.48
       }
     }
-    migrated.appearance.componentMedia = []
+    if (version < 3) migrated.appearance.componentMedia = []
+    if (version < 4) {
+      migrated.visualAssetOverrides = {}
+      migrated.copyOverrides = {}
+    }
     migrated.formatVersion = SKIN_FORMAT_VERSION
     return migrated
   }
@@ -257,6 +275,38 @@ function decodeOverrides(value: unknown): AdvancedTokenOverrides | undefined {
   return overrides
 }
 
+function decodeVisualAssetOverrides(value: unknown): VisualAssetOverrides | undefined {
+  if (!isRecord(value)) return undefined
+  const overrides: VisualAssetOverrides = {}
+  for (const [slot, assetId] of Object.entries(value)) {
+    if (!VISUAL_ASSET_SLOT_SET.has(slot) || typeof assetId !== 'string' || !SAFE_ID.test(assetId)) return undefined
+    overrides[slot as VisualAssetSlotId] = assetId
+  }
+  return overrides
+}
+
+function decodeCopyOverrides(value: unknown): CopyOverrides | undefined {
+  if (!isRecord(value)) return undefined
+  const overrides: CopyOverrides = {}
+  for (const [slotId, localized] of Object.entries(value)) {
+    if (!COPY_SLOT_SET.has(slotId) || !isRecord(localized)) return undefined
+    if (Object.keys(localized).some(locale => !SKIN_LOCALES.includes(locale as SkinLocale))) return undefined
+    const slot = COPY_SLOTS.find(candidate => candidate.id === slotId)!
+    const decoded: LocalizedCopyOverride = {}
+    for (const locale of SKIN_LOCALES) {
+      const input = localized[locale]
+      if (input === undefined) continue
+      if (typeof input !== 'string' || /[\u0000-\u001f\u007f]/.test(input)) return undefined
+      const clean = input.trim()
+      if (clean === '' || clean.length > slot.maxLength) return undefined
+      decoded[locale] = clean
+    }
+    if (Object.keys(decoded).length === 0) return undefined
+    overrides[slotId as CopySlotId] = decoded
+  }
+  return overrides
+}
+
 function decodeAsset(value: unknown): SkinAssetDescriptor | undefined {
   if (!isRecord(value) || typeof value.id !== 'string' || !SAFE_ID.test(value.id)) return undefined
   if (typeof value.path !== 'string' || !/^assets\/[a-z0-9._-]+$/i.test(value.path)) return undefined
@@ -266,15 +316,18 @@ function decodeAsset(value: unknown): SkinAssetDescriptor | undefined {
   const kind = value.kind as AssetKind
   const mimeType = value.mimeType as SkinAssetDescriptor['mimeType']
   if (value.path !== `assets/${value.id}.${ASSET_EXTENSION[mimeType]}`) return undefined
-  const mediaMime = mimeType.startsWith('image/') || mimeType.startsWith('video/')
+  const imageMime = mimeType.startsWith('image/')
+  const videoMime = mimeType.startsWith('video/')
   const mediaKind = kind === 'wallpaper' || kind === 'component-media'
-  const limit = mimeType.startsWith('video/') ? MAX_VIDEO_BYTES : mediaKind ? MAX_WALLPAPER_BYTES : MAX_FONT_BYTES
+  const limit = kind === 'visual-asset' ? MAX_VISUAL_ASSET_BYTES : videoMime ? MAX_VIDEO_BYTES : mediaKind ? MAX_WALLPAPER_BYTES : MAX_FONT_BYTES
   if (value.size > limit) return undefined
-  if (mediaKind !== mediaMime) return undefined
+  if (mediaKind && !imageMime && !videoMime) return undefined
+  if (kind === 'visual-asset' && !imageMime) return undefined
+  if ((kind === 'ui-font' || kind === 'code-font') && mimeType !== 'font/woff2') return undefined
   return { id: value.id, path: value.path, kind, mimeType, size: value.size, sha256: value.sha256 }
 }
 
-export function decodeSkinManifest(value: unknown): SkinManifestV1 | undefined {
+export function decodeSkinManifest(value: unknown): SkinManifestV4 | undefined {
   value = migrateSkinManifest(value)
   if (!isRecord(value) || value.formatVersion !== SKIN_FORMAT_VERSION) return undefined
   const id = typeof value.id === 'string' && SAFE_ID.test(value.id) ? value.id : undefined
@@ -287,15 +340,17 @@ export function decodeSkinManifest(value: unknown): SkinManifestV1 | undefined {
   } : undefined
   const overrides = decodeOverrides(value.overrides)
   const appearance = decodeAppearance(value.appearance)
+  const visualAssetOverrides = decodeVisualAssetOverrides(value.visualAssetOverrides)
+  const copyOverrides = decodeCopyOverrides(value.copyOverrides)
   const assets = Array.isArray(value.assets) ? value.assets.map(decodeAsset) : undefined
   if (id === undefined || name === undefined || author === undefined || description === undefined) return undefined
   if (!ISO_DATE.test(String(value.createdAt)) || !ISO_DATE.test(String(value.updatedAt))) return undefined
-  if (palettes?.light === undefined || palettes.dark === undefined || overrides === undefined || appearance === undefined) return undefined
+  if (palettes?.light === undefined || palettes.dark === undefined || overrides === undefined || appearance === undefined || visualAssetOverrides === undefined || copyOverrides === undefined) return undefined
   if (assets === undefined || assets.some(asset => asset === undefined)) return undefined
   const decodedAssets = assets as SkinAssetDescriptor[]
   if (new Set(decodedAssets.map(asset => asset.id)).size !== decodedAssets.length) return undefined
   if (new Set(decodedAssets.map(asset => asset.path)).size !== decodedAssets.length) return undefined
-  const singletonAssets = decodedAssets.filter(asset => asset.kind !== 'component-media')
+  const singletonAssets = decodedAssets.filter(asset => asset.kind === 'wallpaper' || asset.kind === 'ui-font' || asset.kind === 'code-font')
   if (new Set(singletonAssets.map(asset => asset.kind)).size !== singletonAssets.length) return undefined
   if (decodedAssets.reduce((total, asset) => total + asset.size, 0) > MAX_PACKAGE_BYTES) return undefined
   const assetsById = new Map(decodedAssets.map(asset => [asset.id, asset]))
@@ -303,6 +358,7 @@ export function decodeSkinManifest(value: unknown): SkinManifestV1 | undefined {
   if (appearance.uiFont.assetId !== null && assetsById.get(appearance.uiFont.assetId)?.kind !== 'ui-font') return undefined
   if (appearance.codeFont.assetId !== null && assetsById.get(appearance.codeFont.assetId)?.kind !== 'code-font') return undefined
   if (appearance.componentMedia.some(rule => rule.assetId !== null && assetsById.get(rule.assetId)?.kind !== 'component-media')) return undefined
+  if (Object.values(visualAssetOverrides).some(assetId => assetsById.get(assetId)?.kind !== 'visual-asset')) return undefined
   return {
     format: SKIN_FORMAT,
     formatVersion: SKIN_FORMAT_VERSION,
@@ -315,6 +371,8 @@ export function decodeSkinManifest(value: unknown): SkinManifestV1 | undefined {
     palettes: { light: palettes.light, dark: palettes.dark },
     overrides,
     appearance,
+    visualAssetOverrides,
+    copyOverrides,
     assets: decodedAssets,
   }
 }
@@ -329,6 +387,7 @@ export function cloneManifest(manifest: SkinManifestV1, name = `${manifest.name}
   const copy = structuredClone({ ...manifest, id: makeSkinId(), name, createdAt: now, updatedAt: now, assets: [] })
   copy.appearance.wallpaperAssetId = null
   copy.appearance.componentMedia = []
+  copy.visualAssetOverrides = {}
   if (copy.appearance.uiFont.kind === 'asset') copy.appearance.uiFont = { kind: 'system', assetId: null, family: 'sans-serif' }
   if (copy.appearance.codeFont.kind === 'asset') copy.appearance.codeFont = { kind: 'system', assetId: null, family: 'monospace' }
   return copy

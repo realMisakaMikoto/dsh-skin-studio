@@ -50,6 +50,19 @@ describe('.dshskin packages', () => {
     expect(imported.assets.get('input-media')?.type).toBe('image/png')
   })
 
+  it('round-trips semantic visual assets and localized copy overrides', async () => {
+    const skin = createBlankSkin('Semantic slots')
+    const blob = new Blob([png], { type: 'image/png' })
+    const descriptor = await describeAsset('hero-mark', 'visual-asset', blob)
+    skin.assets = [descriptor]
+    skin.visualAssetOverrides['hero-whale-logo'] = descriptor.id
+    skin.copyOverrides['welcome.title'] = { zh: '今天一起写代码', en: 'Let us build today' }
+    const imported = await importSkinPackage(await exportSkinPackage(skin, new Map([[descriptor.id, blob]])))
+    expect(imported.manifest.visualAssetOverrides['hero-whale-logo']).toBe('hero-mark')
+    expect(imported.manifest.copyOverrides['welcome.title']?.en).toBe('Let us build today')
+    expect(imported.assets.get('hero-mark')?.type).toBe('image/png')
+  })
+
   it('rejects additional script files', async () => {
     const skin = createBlankSkin('Unsafe')
     const file = new Blob([zipSync({

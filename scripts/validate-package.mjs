@@ -19,13 +19,14 @@ const required = [
   'LICENSE', 'README.md', 'README.zh.md', 'cordis.patch.yml', 'package.json',
   'lib/index.js', 'lib/index.d.ts', 'lib/client.js', 'lib/client.js.map', 'lib/client.d.ts',
   'docs/screenshots/skin-library.png', 'docs/screenshots/skin-editor.png', 'docs/screenshots/skin-editor-mobile.png',
+  'docs/skin-format-v4.md',
 ]
 
 for (const path of required) {
   if (!files.has(path)) throw new Error(`Missing package file: ${path}`)
 }
 
-const allowed = /^(?:LICENSE|README(?:\.zh)?\.md|cordis\.patch\.yml|package\.json|lib\/(?:index|client)\.(?:js|d\.ts|js\.map)|docs\/screenshots\/skin-(?:library|editor|editor-mobile)\.png)$/
+const allowed = /^(?:LICENSE|README(?:\.zh)?\.md|cordis\.patch\.yml|package\.json|lib\/(?:index|client)\.(?:js|d\.ts|js\.map)|docs\/(?:skin-format-v4\.md|screenshots\/skin-(?:library|editor|editor-mobile)\.png))$/
 for (const path of files) {
   if (!allowed.test(path)) throw new Error(`Unexpected package file: ${path}`)
 }

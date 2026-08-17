@@ -7,7 +7,7 @@ describe('skin manifest', () => {
     expect(decodeSkinManifest(BUILTIN_SKINS[0])).toEqual(BUILTIN_SKINS[0])
   })
 
-  it('migrates v1 appearance controls and rejects future versions', () => {
+  it('migrates v1 through v3 and rejects future versions', () => {
     expect(migrateSkinManifest(BUILTIN_SKINS[0])).toBe(BUILTIN_SKINS[0])
     const legacy = structuredClone(BUILTIN_SKINS[0]!) as unknown as {
       formatVersion: number
@@ -24,7 +24,42 @@ describe('skin manifest', () => {
     legacyV2.formatVersion = 2
     delete legacyV2.appearance.componentMedia
     expect(decodeSkinManifest(legacyV2)?.appearance.componentMedia).toEqual([])
-    expect(decodeSkinManifest({ ...BUILTIN_SKINS[0], formatVersion: 4 })).toBeUndefined()
+    const legacyV3 = structuredClone(BUILTIN_SKINS[0]!) as unknown as {
+      formatVersion: number
+      visualAssetOverrides?: unknown
+      copyOverrides?: unknown
+    }
+    legacyV3.formatVersion = 3
+    delete legacyV3.visualAssetOverrides
+    delete legacyV3.copyOverrides
+    expect(decodeSkinManifest(legacyV3)).toMatchObject({
+      formatVersion: 4,
+      visualAssetOverrides: {},
+      copyOverrides: {},
+    })
+    expect(decodeSkinManifest({ ...BUILTIN_SKINS[0], formatVersion: 5 })).toBeUndefined()
+  })
+
+  it('rejects unknown semantic slots, missing visual assets, and invalid copy', () => {
+    const unknownVisual = structuredClone(BUILTIN_SKINS[0]!) as typeof BUILTIN_SKINS[number] & {
+      visualAssetOverrides: Record<string, string>
+    }
+    unknownVisual.visualAssetOverrides['attacker-selector'] = 'asset-one'
+    expect(decodeSkinManifest(unknownVisual)).toBeUndefined()
+
+    const missingAsset = structuredClone(BUILTIN_SKINS[0]!)
+    missingAsset.visualAssetOverrides['hero-whale-logo'] = 'missing'
+    expect(decodeSkinManifest(missingAsset)).toBeUndefined()
+
+    const unknownCopy = structuredClone(BUILTIN_SKINS[0]!) as typeof BUILTIN_SKINS[number] & {
+      copyOverrides: Record<string, unknown>
+    }
+    unknownCopy.copyOverrides['document.querySelector'] = { zh: '不安全' }
+    expect(decodeSkinManifest(unknownCopy)).toBeUndefined()
+
+    const tooLong = structuredClone(BUILTIN_SKINS[0]!)
+    tooLong.copyOverrides['welcome.title'] = { zh: '长'.repeat(161) }
+    expect(decodeSkinManifest(tooLong)).toBeUndefined()
   })
 
   it('rejects unsafe asset paths', () => {

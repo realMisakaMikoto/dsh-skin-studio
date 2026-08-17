@@ -1,6 +1,7 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { GUI_TOKEN_NAMES } from '../gui-tokens.ts'
 import { decodeSkinManifest, makeSkinId, type SkinManifestV1 } from '../model.ts'
 import { exportSkinPackage, importSkinPackage } from '../package-format.ts'
@@ -23,6 +24,7 @@ export interface SkinStudioController {
   importPackage: (file: Blob, policy: ConflictPolicy) => Promise<'imported' | 'conflict-cancelled'>
   exportPackage: (id: string) => Promise<Blob>
   tokenNames: readonly string[]
+  activeLocale: () => 'zh' | 'en'
   connectActions: (actions: BoundActions<ReturnType<typeof createSkinStudioStore>>) => void
 }
 
@@ -87,6 +89,7 @@ export function createController(
   window.addEventListener('storage', onStorage)
 
   ctx.on('theme/change', snapshot => { applier.setMode(snapshot.active.colorScheme) })
+  ctx.on('locale/change', snapshot => { applier.setLocale(snapshot.active) })
 
   const inspectedTokenNames = ctx.theme.exportInspectTokens()
     .filter(token => token.valueType.toLowerCase().includes('color'))
@@ -198,6 +201,7 @@ export function createController(
       return await exportSkinPackage(skin, await loadAssets(id))
     },
     tokenNames,
+    activeLocale: () => ctx.locale.getLocale().active,
     connectActions: next => {
       actions = next
       publish()

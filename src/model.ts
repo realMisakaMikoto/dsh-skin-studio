@@ -1,0 +1,335 @@
+export const SKIN_FORMAT = 'dsh-skin-studio' as const
+export const SKIN_FORMAT_VERSION = 3 as const
+export const MAX_PACKAGE_BYTES = 128 * 1024 * 1024
+export const MAX_WALLPAPER_BYTES = 15 * 1024 * 1024
+export const MAX_VIDEO_BYTES = 100 * 1024 * 1024
+export const MAX_FONT_BYTES = 5 * 1024 * 1024
+
+export const MODES = ['light', 'dark'] as const
+export type SkinMode = (typeof MODES)[number]
+
+export const PALETTE_ROLES = [
+  'accent', 'background', 'surface', 'foreground', 'sidebar', 'code',
+] as const
+export type PaletteRole = (typeof PALETTE_ROLES)[number]
+
+export interface SemanticPalette {
+  accent: string
+  background: string
+  surface: string
+  foreground: string
+  sidebar: string
+  code: string
+}
+
+export interface ThemeTokenModes {
+  light: string
+  dark: string
+}
+
+export type AdvancedTokenOverrides = Record<string, ThemeTokenModes>
+
+export interface ModeAppearance {
+  wallpaperOpacity: number
+  scrimOpacity: number
+  surfaceOpacity: number
+}
+
+export interface FontReference {
+  kind: 'system' | 'asset'
+  assetId: string | null
+  family: string
+}
+
+export interface SkinAppearance {
+  wallpaperAssetId: string | null
+  wallpaperBlurPx: number
+  light: ModeAppearance
+  dark: ModeAppearance
+  uiFont: FontReference
+  codeFont: FontReference
+  componentMedia: ComponentMediaRule[]
+}
+
+export interface ComponentTarget {
+  tagName: string
+  role: string | null
+  classNames: string[]
+}
+
+export interface ComponentMediaMode {
+  opacity: number
+  scrimOpacity: number
+}
+
+export interface ComponentMediaRule {
+  id: string
+  name: string
+  target: ComponentTarget
+  assetId: string | null
+  blurPx: number
+  light: ComponentMediaMode
+  dark: ComponentMediaMode
+}
+
+export type AssetKind = 'wallpaper' | 'component-media' | 'ui-font' | 'code-font'
+
+export interface SkinAssetDescriptor {
+  id: string
+  path: string
+  kind: AssetKind
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'video/mp4' | 'video/webm' | 'font/woff2'
+  size: number
+  sha256: string
+}
+
+/** Current public manifest stored as manifest.json inside a .dshskin ZIP container. */
+export interface SkinManifestV3 {
+  format: typeof SKIN_FORMAT
+  formatVersion: typeof SKIN_FORMAT_VERSION
+  id: string
+  name: string
+  author: string
+  description: string
+  createdAt: string
+  updatedAt: string
+  palettes: Record<SkinMode, SemanticPalette>
+  overrides: AdvancedTokenOverrides
+  appearance: SkinAppearance
+  assets: SkinAssetDescriptor[]
+}
+
+export type SkinManifest = SkinManifestV3
+/** @deprecated Import SkinManifest or SkinManifestV3 for the current schema. */
+export type SkinManifestV2 = SkinManifestV3
+/** @deprecated Import SkinManifest or SkinManifestV3 for the current schema. */
+export type SkinManifestV1 = SkinManifestV3
+
+export interface StoredAsset {
+  skinId: string
+  assetId: string
+  blob: Blob
+}
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i
+const SAFE_ID = /^[a-z0-9][a-z0-9._-]{0,95}$/i
+const SAFE_TOKEN = /^--ds(?:w)?-(?:alias|specific|static)-[a-z0-9-]+$/
+const SHA256 = /^[0-9a-f]{64}$/
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:/
+const ALLOWED_MIME = new Set<SkinAssetDescriptor['mimeType']>([
+  'image/png', 'image/jpeg', 'image/webp', 'video/mp4', 'video/webm', 'font/woff2',
+])
+const ALLOWED_KIND = new Set<AssetKind>(['wallpaper', 'component-media', 'ui-font', 'code-font'])
+const ASSET_EXTENSION: Record<SkinAssetDescriptor['mimeType'], string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'font/woff2': 'woff2',
+}
+
+export function isHexColor(value: unknown): value is string {
+  return typeof value === 'string' && HEX_COLOR.test(value)
+}
+
+export function isSafeTokenName(value: unknown): value is string {
+  return typeof value === 'string' && SAFE_TOKEN.test(value)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Upgrade a supported manifest to the current schema. */
+export function migrateSkinManifest(value: unknown): unknown {
+  if (!isRecord(value) || value.format !== SKIN_FORMAT || !Number.isInteger(value.formatVersion)) return undefined
+  const version = value.formatVersion as number
+  if (version < 1 || version > SKIN_FORMAT_VERSION) return undefined
+  if (version < SKIN_FORMAT_VERSION) {
+    const migrated = structuredClone(value)
+    if (!isRecord(migrated.appearance)) return undefined
+    if (version === 1) {
+      for (const mode of MODES) {
+        const appearance = migrated.appearance[mode]
+        if (!isRecord(appearance)) return undefined
+        appearance.surfaceOpacity = mode === 'light' ? 0.52 : 0.48
+      }
+    }
+    migrated.appearance.componentMedia = []
+    migrated.formatVersion = SKIN_FORMAT_VERSION
+    return migrated
+  }
+  return value
+}
+
+function cleanText(value: unknown, max: number): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const clean = value.replace(/[\u0000-\u001f\u007f]/g, '').trim()
+  return clean.length <= max ? clean : undefined
+}
+
+function decodePalette(value: unknown): SemanticPalette | undefined {
+  if (!isRecord(value)) return undefined
+  const palette = {} as Record<PaletteRole, string>
+  for (const role of PALETTE_ROLES) {
+    if (!isHexColor(value[role])) return undefined
+    palette[role] = value[role].toLowerCase()
+  }
+  return palette
+}
+
+function decodeModeAppearance(value: unknown): ModeAppearance | undefined {
+  if (!isRecord(value)) return undefined
+  const wallpaperOpacity = value.wallpaperOpacity
+  const scrimOpacity = value.scrimOpacity
+  const surfaceOpacity = value.surfaceOpacity
+  if (typeof wallpaperOpacity !== 'number' || wallpaperOpacity < 0 || wallpaperOpacity > 1) return undefined
+  if (typeof scrimOpacity !== 'number' || scrimOpacity < 0 || scrimOpacity > 1) return undefined
+  if (typeof surfaceOpacity !== 'number' || surfaceOpacity < 0 || surfaceOpacity > 1) return undefined
+  return { wallpaperOpacity, scrimOpacity, surfaceOpacity }
+}
+
+function decodeFont(value: unknown): FontReference | undefined {
+  if (!isRecord(value) || (value.kind !== 'system' && value.kind !== 'asset')) return undefined
+  const family = cleanText(value.family, 80)
+  if (family === undefined) return undefined
+  if (value.kind === 'system') return { kind: 'system', assetId: null, family }
+  if (typeof value.assetId !== 'string' || !SAFE_ID.test(value.assetId)) return undefined
+  return { kind: 'asset', assetId: value.assetId, family }
+}
+
+function decodeComponentTarget(value: unknown): ComponentTarget | undefined {
+  if (!isRecord(value) || typeof value.tagName !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(value.tagName)) return undefined
+  if (value.role !== null && (typeof value.role !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(value.role))) return undefined
+  if (!Array.isArray(value.classNames) || value.classNames.length > 4) return undefined
+  const classNames = value.classNames.filter(item => typeof item === 'string' && /^[a-z0-9_-]{1,96}$/i.test(item)) as string[]
+  if (classNames.length !== value.classNames.length || new Set(classNames).size !== classNames.length) return undefined
+  return { tagName: value.tagName, role: value.role, classNames }
+}
+
+function decodeComponentMediaMode(value: unknown): ComponentMediaMode | undefined {
+  if (!isRecord(value)) return undefined
+  const opacity = value.opacity
+  const scrimOpacity = value.scrimOpacity
+  if (typeof opacity !== 'number' || opacity < 0 || opacity > 1) return undefined
+  if (typeof scrimOpacity !== 'number' || scrimOpacity < 0 || scrimOpacity > 1) return undefined
+  return { opacity, scrimOpacity }
+}
+
+function decodeComponentMediaRule(value: unknown): ComponentMediaRule | undefined {
+  if (!isRecord(value) || typeof value.id !== 'string' || !SAFE_ID.test(value.id)) return undefined
+  const name = cleanText(value.name, 80)
+  const target = decodeComponentTarget(value.target)
+  const light = decodeComponentMediaMode(value.light)
+  const dark = decodeComponentMediaMode(value.dark)
+  if (name === undefined || target === undefined || light === undefined || dark === undefined) return undefined
+  if (typeof value.blurPx !== 'number' || value.blurPx < 0 || value.blurPx > 40) return undefined
+  if (value.assetId !== null && (typeof value.assetId !== 'string' || !SAFE_ID.test(value.assetId))) return undefined
+  return { id: value.id, name, target, assetId: value.assetId, blurPx: value.blurPx, light, dark }
+}
+
+function decodeAppearance(value: unknown): SkinAppearance | undefined {
+  if (!isRecord(value)) return undefined
+  const light = decodeModeAppearance(value.light)
+  const dark = decodeModeAppearance(value.dark)
+  const uiFont = decodeFont(value.uiFont)
+  const codeFont = decodeFont(value.codeFont)
+  const wallpaperBlurPx = value.wallpaperBlurPx
+  const wallpaperAssetId = value.wallpaperAssetId
+  const componentMedia = Array.isArray(value.componentMedia) ? value.componentMedia.map(decodeComponentMediaRule) : undefined
+  if (light === undefined || dark === undefined || uiFont === undefined || codeFont === undefined) return undefined
+  if (componentMedia === undefined || componentMedia.length > 64 || componentMedia.some(rule => rule === undefined)) return undefined
+  const decodedComponentMedia = componentMedia as ComponentMediaRule[]
+  if (new Set(decodedComponentMedia.map(rule => rule.id)).size !== decodedComponentMedia.length) return undefined
+  if (typeof wallpaperBlurPx !== 'number' || wallpaperBlurPx < 0 || wallpaperBlurPx > 40) return undefined
+  if (wallpaperAssetId !== null && (typeof wallpaperAssetId !== 'string' || !SAFE_ID.test(wallpaperAssetId))) return undefined
+  return { wallpaperAssetId, wallpaperBlurPx, light, dark, uiFont, codeFont, componentMedia: decodedComponentMedia }
+}
+
+function decodeOverrides(value: unknown): AdvancedTokenOverrides | undefined {
+  if (!isRecord(value)) return undefined
+  const overrides: AdvancedTokenOverrides = {}
+  for (const [name, modes] of Object.entries(value)) {
+    if (!isSafeTokenName(name) || !isRecord(modes) || !isHexColor(modes.light) || !isHexColor(modes.dark)) return undefined
+    overrides[name] = { light: modes.light.toLowerCase(), dark: modes.dark.toLowerCase() }
+  }
+  return overrides
+}
+
+function decodeAsset(value: unknown): SkinAssetDescriptor | undefined {
+  if (!isRecord(value) || typeof value.id !== 'string' || !SAFE_ID.test(value.id)) return undefined
+  if (typeof value.path !== 'string' || !/^assets\/[a-z0-9._-]+$/i.test(value.path)) return undefined
+  if (!ALLOWED_KIND.has(value.kind as AssetKind) || !ALLOWED_MIME.has(value.mimeType as SkinAssetDescriptor['mimeType'])) return undefined
+  if (typeof value.size !== 'number' || !Number.isInteger(value.size) || value.size < 0) return undefined
+  if (typeof value.sha256 !== 'string' || !SHA256.test(value.sha256)) return undefined
+  const kind = value.kind as AssetKind
+  const mimeType = value.mimeType as SkinAssetDescriptor['mimeType']
+  if (value.path !== `assets/${value.id}.${ASSET_EXTENSION[mimeType]}`) return undefined
+  const mediaMime = mimeType.startsWith('image/') || mimeType.startsWith('video/')
+  const mediaKind = kind === 'wallpaper' || kind === 'component-media'
+  const limit = mimeType.startsWith('video/') ? MAX_VIDEO_BYTES : mediaKind ? MAX_WALLPAPER_BYTES : MAX_FONT_BYTES
+  if (value.size > limit) return undefined
+  if (mediaKind !== mediaMime) return undefined
+  return { id: value.id, path: value.path, kind, mimeType, size: value.size, sha256: value.sha256 }
+}
+
+export function decodeSkinManifest(value: unknown): SkinManifestV1 | undefined {
+  value = migrateSkinManifest(value)
+  if (!isRecord(value) || value.formatVersion !== SKIN_FORMAT_VERSION) return undefined
+  const id = typeof value.id === 'string' && SAFE_ID.test(value.id) ? value.id : undefined
+  const name = cleanText(value.name, 80)
+  const author = cleanText(value.author, 80)
+  const description = cleanText(value.description, 300)
+  const palettes = isRecord(value.palettes) ? {
+    light: decodePalette(value.palettes.light),
+    dark: decodePalette(value.palettes.dark),
+  } : undefined
+  const overrides = decodeOverrides(value.overrides)
+  const appearance = decodeAppearance(value.appearance)
+  const assets = Array.isArray(value.assets) ? value.assets.map(decodeAsset) : undefined
+  if (id === undefined || name === undefined || author === undefined || description === undefined) return undefined
+  if (!ISO_DATE.test(String(value.createdAt)) || !ISO_DATE.test(String(value.updatedAt))) return undefined
+  if (palettes?.light === undefined || palettes.dark === undefined || overrides === undefined || appearance === undefined) return undefined
+  if (assets === undefined || assets.some(asset => asset === undefined)) return undefined
+  const decodedAssets = assets as SkinAssetDescriptor[]
+  if (new Set(decodedAssets.map(asset => asset.id)).size !== decodedAssets.length) return undefined
+  if (new Set(decodedAssets.map(asset => asset.path)).size !== decodedAssets.length) return undefined
+  const singletonAssets = decodedAssets.filter(asset => asset.kind !== 'component-media')
+  if (new Set(singletonAssets.map(asset => asset.kind)).size !== singletonAssets.length) return undefined
+  if (decodedAssets.reduce((total, asset) => total + asset.size, 0) > MAX_PACKAGE_BYTES) return undefined
+  const assetsById = new Map(decodedAssets.map(asset => [asset.id, asset]))
+  if (appearance.wallpaperAssetId !== null && assetsById.get(appearance.wallpaperAssetId)?.kind !== 'wallpaper') return undefined
+  if (appearance.uiFont.assetId !== null && assetsById.get(appearance.uiFont.assetId)?.kind !== 'ui-font') return undefined
+  if (appearance.codeFont.assetId !== null && assetsById.get(appearance.codeFont.assetId)?.kind !== 'code-font') return undefined
+  if (appearance.componentMedia.some(rule => rule.assetId !== null && assetsById.get(rule.assetId)?.kind !== 'component-media')) return undefined
+  return {
+    format: SKIN_FORMAT,
+    formatVersion: SKIN_FORMAT_VERSION,
+    id,
+    name,
+    author,
+    description,
+    createdAt: String(value.createdAt),
+    updatedAt: String(value.updatedAt),
+    palettes: { light: palettes.light, dark: palettes.dark },
+    overrides,
+    appearance,
+    assets: decodedAssets,
+  }
+}
+
+export function makeSkinId(prefix = 'skin'): string {
+  const random = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)
+  return `${prefix}-${random.toLowerCase()}`
+}
+
+export function cloneManifest(manifest: SkinManifestV1, name = `${manifest.name} copy`): SkinManifestV1 {
+  const now = new Date().toISOString()
+  const copy = structuredClone({ ...manifest, id: makeSkinId(), name, createdAt: now, updatedAt: now, assets: [] })
+  copy.appearance.wallpaperAssetId = null
+  copy.appearance.componentMedia = []
+  if (copy.appearance.uiFont.kind === 'asset') copy.appearance.uiFont = { kind: 'system', assetId: null, family: 'sans-serif' }
+  if (copy.appearance.codeFont.kind === 'asset') copy.appearance.codeFont = { kind: 'system', assetId: null, family: 'monospace' }
+  return copy
+}

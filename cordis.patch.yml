@@ -1,0 +1,4 @@
+# Register dsh-skin-studio in the Web client roster.
+- insert:
+    - id: skin-studio
+      name: 'dsh-skin-studio'

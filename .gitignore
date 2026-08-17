@@ -1,0 +1,9 @@
+node_modules/
+lib/
+coverage/
+*.tgz
+.DS_Store
+Thumbs.db
+.playwright-cli/
+output/
+/无关/

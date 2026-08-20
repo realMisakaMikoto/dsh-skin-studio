@@ -21,7 +21,7 @@ const MIME_EXTENSIONS: Record<SkinAssetDescriptor['mimeType'], string> = {
 }
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.slice().buffer as ArrayBuffer
+  return Uint8Array.from(bytes).buffer as ArrayBuffer
 }
 
 async function blobBytes(blob: Blob): Promise<Uint8Array> {

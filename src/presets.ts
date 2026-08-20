@@ -25,8 +25,10 @@ function preset(id: string, name: string, light: SemanticPalette, description: s
       codeFont: systemFont('"SFMono-Regular", Consolas, "Liberation Mono", monospace'),
       componentMedia: [],
     },
+    sidebarBrandLayout: 'split',
     visualAssetOverrides: {},
     copyOverrides: {},
+    textOverrides: [],
     assets: [],
   }
 }

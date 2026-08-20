@@ -90,16 +90,208 @@ describe('SkinStudioRow', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Visual assets' }))
     expect(screen.getByRole('heading', { name: 'Built-in visual assets' })).toBeInTheDocument()
     expect(screen.getByText('Empty-state whale mark')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Single logo' })).toBeDisabled()
     expect(screen.getAllByText('Unavailable in this DSH view').length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByRole('tab', { name: 'Copy' }))
     expect(screen.getByRole('heading', { name: 'Interface copy' })).toBeInTheDocument()
     expect(screen.getByText('Welcome title')).toBeInTheDocument()
+    expect(screen.queryByText('Settings title')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Free text' })).toBeInTheDocument()
     const english = screen.getByLabelText('Welcome title English override')
     fireEvent.change(english, { target: { value: 'Build with Miku today' } })
     fireEvent.click(screen.getByRole('button', { name: 'Apply & save' }))
     await waitFor(() => { expect(api.saveAndActivate).toHaveBeenCalledOnce() })
     expect(vi.mocked(api.saveAndActivate).mock.calls[0]?.[0].copyOverrides['welcome.title']?.en).toBe('Build with Miku today')
+  })
+
+  it('creates one bilingual free-text rule with keyboard picking and focuses duplicates', async () => {
+    const skin = createBlankSkin('Text picker skin')
+    const api = controller()
+    const state = { skins: [skin], activeId: skin.id, ready: true, persistent: true, revision: 1 }
+    const root = document.createElement('div')
+    root.id = 'root'
+    const target = document.createElement('button')
+    target.className = 'abc_text_action'
+    target.textContent = 'Outside label'
+    target.getBoundingClientRect = () => ({ x: 20, y: 20, width: 120, height: 28, top: 20, left: 20, right: 140, bottom: 48, toJSON: () => ({}) }) as DOMRect
+    const mount = document.createElement('div')
+    root.append(target, mount)
+    document.body.append(root)
+    try {
+      render(<SkinStudioRow {...({
+        t: (key: SkinStudioKey) => en[key],
+        useStore: (select: (value: typeof state) => unknown) => select(state),
+        controller: api,
+      } as unknown as SkinStudioRowProps)} />, { container: mount })
+      fireEvent.click(screen.getByRole('button', { name: 'Open Skin Studio' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+      fireEvent.click(screen.getByRole('tab', { name: 'Copy' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Pick interface text' }))
+      await waitFor(() => { expect(target).toHaveFocus() })
+      fireEvent.keyDown(target, { key: 'ArrowRight' })
+      fireEvent.keyDown(target, { key: 'Enter' })
+      const chinese = await screen.findByLabelText('Outside label Chinese override')
+      await waitFor(() => { expect(chinese).toHaveFocus() })
+      fireEvent.change(chinese, { target: { value: '外部操作' } })
+      fireEvent.change(screen.getByLabelText('Outside label English override'), { target: { value: 'Outside action' } })
+      await waitFor(() => {
+        expect(vi.mocked(api.preview).mock.calls.some(call => call[0].textOverrides[0]?.replacements.en === 'Outside action')).toBe(true)
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Pick interface text' }))
+      await waitFor(() => { expect(target).toHaveFocus() })
+      fireEvent.keyDown(target, { key: ' ' })
+      await waitFor(() => { expect(screen.getByLabelText('Outside label Chinese override')).toHaveFocus() })
+      expect(screen.getAllByRole('button', { name: 'Delete rule' })).toHaveLength(1)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Pick interface text' }))
+      await waitFor(() => { expect(target).toHaveFocus() })
+      fireEvent.keyDown(target, { key: 'Escape' })
+      await waitFor(() => { expect(screen.getByRole('button', { name: 'Pick interface text' })).toHaveFocus() })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Apply & save' }))
+      await waitFor(() => { expect(api.saveAndActivate).toHaveBeenCalledOnce() })
+      const saved = vi.mocked(api.saveAndActivate).mock.calls[0]?.[0]
+      expect(saved?.textOverrides).toHaveLength(1)
+      expect(saved?.textOverrides[0]?.replacements).toEqual({ zh: '外部操作', en: 'Outside action' })
+    } finally {
+      root.remove()
+    }
+  })
+
+  it('routes a picked stable Copy Slot back to its fixed editor without creating a free rule', async () => {
+    const skin = createBlankSkin('Fixed copy picker skin')
+    const state = { skins: [skin], activeId: skin.id, ready: true, persistent: true, revision: 1 }
+    const root = document.createElement('div')
+    root.id = 'root'
+    const target = document.createElement('button')
+    target.setAttribute('aria-label', 'New session')
+    target.innerHTML = '<svg></svg><span>New Session</span>'
+    target.getBoundingClientRect = () => ({ x: 20, y: 20, width: 140, height: 32, top: 20, left: 20, right: 160, bottom: 52, toJSON: () => ({}) }) as DOMRect
+    target.querySelector<HTMLElement>('span')!.getBoundingClientRect = target.getBoundingClientRect
+    const mount = document.createElement('div')
+    root.append(target, mount)
+    document.body.append(root)
+    try {
+      render(<SkinStudioRow {...({
+        t: (key: SkinStudioKey) => en[key],
+        useStore: (select: (value: typeof state) => unknown) => select(state),
+        controller: controller(),
+      } as unknown as SkinStudioRowProps)} />, { container: mount })
+      fireEvent.click(screen.getByRole('button', { name: 'Open Skin Studio' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+      fireEvent.click(screen.getByRole('tab', { name: 'Copy' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Pick interface text' }))
+      await waitFor(() => { expect(target).toHaveFocus() })
+      fireEvent.keyDown(target, { key: 'Enter' })
+      await waitFor(() => { expect(screen.getByLabelText('Sidebar new-session label Chinese override')).toHaveFocus() })
+      expect(screen.queryByRole('button', { name: 'Delete rule' })).not.toBeInTheDocument()
+    } finally {
+      root.remove()
+    }
+  })
+
+  it('keeps the text picker open with a reason when chat copy is selected', async () => {
+    const skin = createBlankSkin('Blocked picker skin')
+    const state = { skins: [skin], activeId: skin.id, ready: true, persistent: true, revision: 1 }
+    const root = document.createElement('div')
+    root.id = 'root'
+    const chat = document.createElement('div')
+    chat.dataset.chatFlowKind = 'assistant'
+    const target = document.createElement('button')
+    target.textContent = 'Model retry'
+    target.getBoundingClientRect = () => ({ x: 20, y: 20, width: 120, height: 32, top: 20, left: 20, right: 140, bottom: 52, toJSON: () => ({}) }) as DOMRect
+    const mount = document.createElement('div')
+    chat.append(target); root.append(chat, mount); document.body.append(root)
+    try {
+      render(<SkinStudioRow {...({
+        t: (key: SkinStudioKey) => en[key],
+        useStore: (select: (value: typeof state) => unknown) => select(state),
+        controller: controller(),
+      } as unknown as SkinStudioRowProps)} />, { container: mount })
+      fireEvent.click(screen.getByRole('button', { name: 'Open Skin Studio' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+      fireEvent.click(screen.getByRole('tab', { name: 'Copy' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Pick interface text' }))
+      await waitFor(() => { expect(target).toHaveFocus() })
+      expect(screen.getByRole('status')).toHaveTextContent('Chat history is not skin copy')
+      fireEvent.keyDown(target, { key: 'Enter' })
+      expect(screen.queryByRole('dialog', { name: 'Skin Studio' })).not.toBeInTheDocument()
+      expect(screen.getByRole('status')).toHaveTextContent('Chat history is not skin copy')
+      fireEvent.keyDown(target, { key: 'Escape' })
+      await waitFor(() => { expect(screen.getByRole('dialog', { name: 'Skin Studio' })).toBeInTheDocument() })
+    } finally {
+      root.remove()
+    }
+  })
+
+  it('reveals transient text in interaction mode before selecting it', async () => {
+    const skin = createBlankSkin('Interactive text picker skin')
+    const state = { skins: [skin], activeId: skin.id, ready: true, persistent: true, revision: 1 }
+    const root = document.createElement('div')
+    root.id = 'root'
+    const opener = document.createElement('button')
+    opener.textContent = 'Open actions'
+    opener.getBoundingClientRect = () => ({ x: 20, y: 20, width: 120, height: 32, top: 20, left: 20, right: 140, bottom: 52, toJSON: () => ({}) }) as DOMRect
+    let revealed: HTMLButtonElement | undefined
+    opener.addEventListener('click', () => {
+      revealed = document.createElement('button')
+      revealed.className = 'abc_revealed_text'
+      revealed.textContent = 'Revealed action'
+      revealed.getBoundingClientRect = () => ({ x: 20, y: 60, width: 140, height: 32, top: 60, left: 20, right: 160, bottom: 92, toJSON: () => ({}) }) as DOMRect
+      document.body.append(revealed)
+    })
+    const mount = document.createElement('div')
+    root.append(opener, mount); document.body.append(root)
+    try {
+      render(<SkinStudioRow {...({
+        t: (key: SkinStudioKey) => en[key],
+        useStore: (select: (value: typeof state) => unknown) => select(state),
+        controller: controller(),
+      } as unknown as SkinStudioRowProps)} />, { container: mount })
+      fireEvent.click(screen.getByRole('button', { name: 'Open Skin Studio' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+      fireEvent.click(screen.getByRole('tab', { name: 'Copy' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Pick interface text' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Interact with interface' }))
+      expect(screen.getByRole('button', { name: 'Interact with interface' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('status')).toHaveTextContent('Interact mode')
+      fireEvent.click(opener)
+      expect(revealed).toBeInTheDocument()
+      expect(screen.queryByRole('dialog', { name: 'Skin Studio' })).not.toBeInTheDocument()
+      fireEvent.keyDown(opener, { key: 'F2' })
+      expect(screen.getByRole('button', { name: 'Select target' })).toHaveAttribute('aria-pressed', 'true')
+      expect(revealed).toBeInTheDocument()
+      fireEvent.click(revealed!)
+      await waitFor(() => { expect(screen.getByLabelText('Revealed action Chinese override')).toHaveFocus() })
+    } finally {
+      revealed?.remove()
+      root.remove()
+    }
+  })
+
+  it('saves the single-logo sidebar brand layout when a wordmark is configured', async () => {
+    const skin = createBlankSkin('Single logo skin')
+    skin.assets = [{ id: 'wordmark', path: 'assets/wordmark.png', kind: 'visual-asset', mimeType: 'image/png', size: 8, sha256: '0'.repeat(64) }]
+    skin.visualAssetOverrides['sidebar-brand-wordmark'] = 'wordmark'
+    const api = controller()
+    const state = { skins: [skin], activeId: skin.id, ready: true, persistent: true, revision: 1 }
+    render(<SkinStudioRow {...({
+      t: (key: SkinStudioKey) => en[key],
+      useStore: (select: (value: typeof state) => unknown) => select(state),
+      controller: api,
+    } as unknown as SkinStudioRowProps)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open Skin Studio' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Visual assets' }))
+    const single = screen.getByRole('button', { name: 'Single logo' })
+    expect(single).toBeEnabled()
+    fireEvent.click(single)
+    expect(single).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Apply & save' }))
+    await waitFor(() => { expect(api.saveAndActivate).toHaveBeenCalledOnce() })
+    expect(vi.mocked(api.saveAndActivate).mock.calls[0]?.[0].sidebarBrandLayout).toBe('single')
   })
 
   it('uploads a safe raster image into a visual asset slot', async () => {
@@ -281,6 +473,49 @@ describe('SkinStudioRow', () => {
       await waitFor(() => { expect(screen.getByRole('dialog', { name: 'Skin Studio' })).toBeInTheDocument() })
       await waitFor(() => { expect(screen.getByRole('button', { name: 'Pick main interface' })).toHaveFocus() })
     } finally {
+      root.remove()
+    }
+  })
+
+  it('reveals transient components in interaction mode before selecting them', async () => {
+    const skin = createBlankSkin('Interactive component picker skin')
+    const state = { skins: [skin], activeId: skin.id, ready: true, persistent: true, revision: 1 }
+    const root = document.createElement('div')
+    root.id = 'root'
+    const opener = document.createElement('button')
+    opener.className = 'abc_opener'
+    opener.textContent = 'Open component menu'
+    opener.getBoundingClientRect = () => ({ x: 20, y: 20, width: 160, height: 40, top: 20, left: 20, right: 180, bottom: 60, toJSON: () => ({}) }) as DOMRect
+    let revealed: HTMLButtonElement | undefined
+    opener.addEventListener('click', () => {
+      revealed = document.createElement('button')
+      revealed.className = 'abc_revealed_component'
+      revealed.textContent = 'Revealed component'
+      revealed.getBoundingClientRect = () => ({ x: 20, y: 70, width: 180, height: 40, top: 70, left: 20, right: 200, bottom: 110, toJSON: () => ({}) }) as DOMRect
+      document.body.append(revealed)
+    })
+    const mount = document.createElement('div')
+    root.append(opener, mount); document.body.append(root)
+    try {
+      render(<SkinStudioRow {...({
+        t: (key: SkinStudioKey) => en[key],
+        useStore: (select: (value: typeof state) => unknown) => select(state),
+        controller: controller(),
+      } as unknown as SkinStudioRowProps)} />, { container: mount })
+      fireEvent.click(screen.getByRole('button', { name: 'Open Skin Studio' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+      fireEvent.click(screen.getByRole('tab', { name: 'GUI components' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Pick main interface' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Interact with interface' }))
+      fireEvent.click(opener)
+      expect(revealed).toBeInTheDocument()
+      fireEvent.keyDown(opener, { key: 'F2' })
+      expect(screen.getByRole('button', { name: 'Select target' })).toHaveAttribute('aria-pressed', 'true')
+      fireEvent.click(revealed!)
+      await waitFor(() => { expect(screen.getByText('button.abc_revealed_component')).toBeInTheDocument() })
+      expect(screen.getByText('Next: upload an image or video')).toBeInTheDocument()
+    } finally {
+      revealed?.remove()
       root.remove()
     }
   })

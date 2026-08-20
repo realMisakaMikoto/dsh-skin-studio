@@ -3,6 +3,7 @@ import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { GUI_TOKEN_NAMES } from '../gui-tokens.ts'
+import { loadAllBundledSkinPackages } from '../builtin-skins.ts'
 import { decodeSkinManifest, makeSkinId, type SkinManifestV1 } from '../model.ts'
 import { exportSkinPackage, importSkinPackage } from '../package-format.ts'
 import { BUILTIN_SKINS, createBlankSkin } from '../presets.ts'
@@ -69,7 +70,9 @@ export function createController(
       await applyActive()
     } catch {
       persistent = false
-      skins = BUILTIN_SKINS.map(skin => structuredClone(skin))
+      const bundled = await loadAllBundledSkinPackages().catch(() => [])
+      skins = [...BUILTIN_SKINS.map(skin => structuredClone(skin)), ...bundled.map(item => item.manifest)]
+      for (const item of bundled) volatileAssets.set(item.manifest.id, item.assets)
       if (active !== null && !skins.some(skin => skin.id === active!.id)) skins.push(active)
     }
     publish()

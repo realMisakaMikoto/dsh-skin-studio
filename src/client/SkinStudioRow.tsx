@@ -7,12 +7,18 @@ import { generateCounterpart, inspectContrast } from '../color.ts'
 import { GUI_TOKEN_GROUPS, suggestTokenModes, type GuiTokenSpec } from '../gui-tokens.ts'
 import { describeAsset, SkinPackageError } from '../package-format.ts'
 import {
-  PALETTE_ROLES, makeSkinId,
-  type AssetKind, type ComponentMediaRule, type PaletteRole, type SkinManifestV1, type SkinMode,
+  MAX_TEXT_OVERRIDE_RULES, PALETTE_ROLES, makeSkinId, textOverrideTargetKey,
+  type AssetKind, type ComponentMediaRule, type PaletteRole, type SkinManifestV1, type SkinMode, type TextOverrideRule,
 } from '../model.ts'
 import type { CopySlotId, SkinLocale, VisualAssetSlotId } from '../skin-slots.ts'
 import { createComponentTarget, describeComponentTarget, findPickableComponent } from './component-picker.ts'
-import { CopyOverrideEditor, VisualAssetEditor } from './SemanticEditors.tsx'
+import { CopyOverrideEditor, VisualAssetEditor, type CopyEditorFocus } from './SemanticEditors.tsx'
+import { fixedCopySlotForTarget } from './semantic-slots.ts'
+import { createPickerOverlay, type PickerMode } from './picker-mode.ts'
+import {
+  createTextPickCandidate, listTextPickCandidates, textPickCandidateRect,
+  type TextExclusionReason, type TextPickCandidate,
+} from './text-targets.ts'
 import type { SkinStudioKey } from './locales.ts'
 import type { ConflictPolicy, SkinStudioController } from './controller.ts'
 import type { createSkinStudioStore } from './store.ts'
@@ -107,6 +113,8 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
   const [assetError, setAssetError] = useState<'invalid' | 'too-large' | null>(null)
   const [pickingComponent, setPickingComponent] = useState(false)
   const [pickSettingsComponent, setPickSettingsComponent] = useState(false)
+  const [pickingText, setPickingText] = useState(false)
+  const [copyFocus, setCopyFocus] = useState<CopyEditorFocus | null>(null)
   const [rightsConfirmed, setRightsConfirmed] = useState(false)
   const importRef = useRef<HTMLInputElement | null>(null)
   const wallpaperRef = useRef<HTMLInputElement | null>(null)
@@ -177,8 +185,8 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
 
   useEffect(() => {
     if (!pickingComponent) return
-    const root = document.getElementById('root')
-    if (root === null) { setPickingComponent(false); setOpen(true); return }
+    if (document.getElementById('root') === null) { setPickingComponent(false); setOpen(true); return }
+    const root = document.body
     const hiddenOverlays: Array<{ element: HTMLElement; visibility: string }> = []
     if (!pickSettingsComponent) {
       for (const dialog of document.querySelectorAll<HTMLElement>('[role="dialog"]')) {
@@ -195,17 +203,9 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
         }
       }
     }
-    const hint = document.createElement('div')
-    hint.dataset.dshSkinStudioUi = ''
-    hint.textContent = t('componentMedia.pickerHint')
-    hint.setAttribute('role', 'status')
-    hint.setAttribute('aria-live', 'polite')
-    hint.setAttribute('aria-atomic', 'true')
-    Object.assign(hint.style, {
-      position: 'fixed', top: '18px', left: '50%', transform: 'translateX(-50%)', zIndex: '2147483647',
-      maxWidth: 'min(560px, calc(100vw - 32px))', padding: '10px 14px', borderRadius: '10px',
-      background: '#111827', color: '#ffffff', font: '600 14px/1.4 system-ui, sans-serif',
-      boxShadow: '0 10px 30px rgba(0,0,0,.28)', pointerEvents: 'none',
+    const pickerOverlay = createPickerOverlay({
+      initialHint: t('componentMedia.pickerHint'), modeLabel: t('picker.modeLabel'),
+      selectMode: t('picker.selectMode'), interactMode: t('picker.interactMode'), shortcut: t('picker.shortcut'),
     })
     const highlight = document.createElement('div')
     highlight.dataset.dshSkinStudioUi = ''
@@ -213,7 +213,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
       position: 'fixed', zIndex: '2147483646', border: '2px solid #16a3c7', borderRadius: '8px',
       background: 'rgba(22,163,199,.12)', boxShadow: '0 0 0 2px rgba(255,255,255,.9)', pointerEvents: 'none',
     })
-    document.body.append(hint, highlight)
+    document.body.append(pickerOverlay.element, highlight)
     let candidate: HTMLElement | undefined
     const pickFrom = (origin: Element | null): HTMLElement | undefined => {
       const picked = findPickableComponent(origin, root)
@@ -221,22 +221,32 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
     }
     const showCandidate = (next: HTMLElement | undefined): void => {
       candidate = next
-      if (candidate === undefined) { highlight.style.display = 'none'; return }
+      if (candidate === undefined) {
+        highlight.style.display = 'none'
+        if (pickerOverlay.mode() === 'select') pickerOverlay.status.textContent = t('componentMedia.pickerHint')
+        return
+      }
       const rect = candidate.getBoundingClientRect()
       Object.assign(highlight.style, { display: 'block', left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` })
-      hint.textContent = `${t('componentMedia.pickerHint')} · ${describeComponentTarget(createComponentTarget(candidate))}`
+      pickerOverlay.status.textContent = `${t('componentMedia.pickerHint')} · ${describeComponentTarget(createComponentTarget(candidate))}`
     }
-    const move = (event: PointerEvent): void => { showCandidate(pickFrom(document.elementFromPoint(event.clientX, event.clientY))) }
-    const keyboardCandidates: HTMLElement[] = []
-    const seen = new Set<HTMLElement>()
-    for (const element of root.querySelectorAll<HTMLElement>('*')) {
-      const picked = pickFrom(element)
-      if (picked === undefined || seen.has(picked) || getComputedStyle(picked).visibility !== 'visible') continue
-      const rect = picked.getBoundingClientRect()
-      if (rect.width < 4 || rect.height < 4) continue
-      seen.add(picked); keyboardCandidates.push(picked)
+    const move = (event: PointerEvent): void => {
+      if (pickerOverlay.mode() === 'select') showCandidate(pickFrom(document.elementFromPoint(event.clientX, event.clientY)))
     }
+    let keyboardCandidates: HTMLElement[] = []
     let keyboardIndex = -1
+    const refreshKeyboardCandidates = (): void => {
+      const seen = new Set<HTMLElement>()
+      keyboardCandidates = []
+      for (const element of root.querySelectorAll<HTMLElement>('*')) {
+        const picked = pickFrom(element)
+        if (picked === undefined || seen.has(picked) || getComputedStyle(picked).visibility !== 'visible') continue
+        const rect = picked.getBoundingClientRect()
+        if (rect.width < 4 || rect.height < 4) continue
+        seen.add(picked); keyboardCandidates.push(picked)
+      }
+      keyboardIndex = -1
+    }
     const finish = (element?: HTMLElement): void => {
       let createdRuleId: string | undefined
       if (element !== undefined) {
@@ -262,12 +272,48 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
         studioRef.current?.querySelector<HTMLElement>(`[data-component-picker="${returnTarget}"]`)?.focus()
       }, 120)
     }
+    const setPickerMode = (mode: PickerMode): void => {
+      pickerOverlay.setMode(mode)
+      candidate = undefined
+      highlight.style.display = 'none'
+      if (mode === 'interact') {
+        pickerOverlay.status.textContent = t('picker.interactHint')
+        return
+      }
+      pickerOverlay.status.textContent = t('componentMedia.pickerHint')
+      refreshKeyboardCandidates()
+      const focused = pickFrom(document.activeElement)
+      if (focused !== undefined) {
+        keyboardIndex = keyboardCandidates.indexOf(focused)
+        showCandidate(focused)
+      }
+    }
+    const controlPointerDown = (event: Event): void => {
+      const mode = pickerOverlay.modeFromTarget(event.target)
+      if (mode === undefined) return
+      event.preventDefault(); event.stopImmediatePropagation(); setPickerMode(mode)
+    }
     const click = (event: MouseEvent): void => {
-      event.preventDefault(); event.stopImmediatePropagation()
-      finish(candidate ?? pickFrom(event.target as Element))
+      const mode = pickerOverlay.modeFromTarget(event.target)
+      if (mode !== undefined) { event.preventDefault(); event.stopImmediatePropagation(); setPickerMode(mode); return }
+      if (event.target instanceof Element && event.target.closest('[data-dsh-skin-studio-ui]') !== null) {
+        event.preventDefault(); event.stopImmediatePropagation(); return
+      }
+      if (pickerOverlay.mode() === 'interact') return
+      event.preventDefault(); event.stopImmediatePropagation(); finish(pickFrom(event.target as Element) ?? candidate)
     }
     const keydown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === 'F2') {
+        event.preventDefault(); event.stopImmediatePropagation()
+        setPickerMode(pickerOverlay.mode() === 'select' ? 'interact' : 'select')
+        return
+      }
+      const controlMode = pickerOverlay.modeFromTarget(event.target)
+      if (controlMode !== undefined && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault(); event.stopImmediatePropagation(); setPickerMode(controlMode); return
+      }
       if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); finish(); return }
+      if (pickerOverlay.mode() === 'interact') return
       if (['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft'].includes(event.key) && keyboardCandidates.length > 0) {
         event.preventDefault()
         const direction = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1
@@ -281,22 +327,205 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
       }
       if (event.key === 'Tab') window.requestAnimationFrame(() => { showCandidate(pickFrom(document.activeElement)) })
     }
-    const focusin = (event: FocusEvent): void => { showCandidate(pickFrom(event.target as Element)) }
+    const focusin = (event: FocusEvent): void => {
+      if (pickerOverlay.mode() === 'select') showCandidate(pickFrom(event.target as Element))
+    }
+    window.addEventListener('pointerdown', controlPointerDown, true)
+    window.addEventListener('mousedown', controlPointerDown, true)
     document.addEventListener('pointermove', move, true)
     document.addEventListener('click', click, true)
     document.addEventListener('keydown', keydown, true)
     document.addEventListener('focusin', focusin, true)
+    refreshKeyboardCandidates()
     const firstFocusable = keyboardCandidates.find(element => element.tabIndex >= 0)
     if (firstFocusable !== undefined) { keyboardIndex = keyboardCandidates.indexOf(firstFocusable); firstFocusable.focus({ preventScroll: true }); showCandidate(firstFocusable) }
     return () => {
+      window.removeEventListener('pointerdown', controlPointerDown, true)
+      window.removeEventListener('mousedown', controlPointerDown, true)
       document.removeEventListener('pointermove', move, true)
       document.removeEventListener('click', click, true)
       document.removeEventListener('keydown', keydown, true)
       document.removeEventListener('focusin', focusin, true)
       for (const hidden of hiddenOverlays) hidden.element.style.visibility = hidden.visibility
-      hint.remove(); highlight.remove()
+      pickerOverlay.element.remove(); highlight.remove()
     }
   }, [pickSettingsComponent, pickingComponent, t])
+
+  useEffect(() => {
+    if (!pickingText) return
+    if (document.getElementById('root') === null || draft === null) { setPickingText(false); setOpen(true); return }
+    const root = document.body
+    const hiddenOverlays: Array<{ element: HTMLElement; visibility: string }> = []
+    for (const dialog of document.querySelectorAll<HTMLElement>('[role="dialog"]')) {
+      let overlay: HTMLElement | null = dialog
+      while (overlay.parentElement !== null) {
+        const rect = overlay.getBoundingClientRect()
+        if (rect.width >= window.innerWidth * 0.9 && rect.height >= window.innerHeight * 0.9) break
+        overlay = overlay.parentElement
+      }
+      hiddenOverlays.push({ element: overlay, visibility: overlay.style.visibility })
+      overlay.style.visibility = 'hidden'
+    }
+    const pickerOverlay = createPickerOverlay({
+      initialHint: t('text.pickerHint'), modeLabel: t('picker.modeLabel'),
+      selectMode: t('picker.selectMode'), interactMode: t('picker.interactMode'), shortcut: t('picker.shortcut'),
+    })
+    const highlight = document.createElement('div')
+    highlight.dataset.dshSkinStudioUi = ''
+    Object.assign(highlight.style, {
+      position: 'fixed', zIndex: '2147483646', border: '2px solid #16a3c7', borderRadius: '4px',
+      background: 'rgba(22,163,199,.12)', boxShadow: '0 0 0 2px rgba(255,255,255,.9)', pointerEvents: 'none',
+    })
+    document.body.append(pickerOverlay.element, highlight)
+    const blockedText = (reason: TextExclusionReason): string => t(reason === 'session-name'
+      ? 'text.blocked.session'
+      : reason === 'project-name'
+        ? 'text.blocked.project'
+        : reason === 'chat-content'
+          ? 'text.blocked.chat'
+          : 'text.blocked.settings')
+    let candidate: TextPickCandidate | undefined
+    const showCandidate = (next: TextPickCandidate | undefined): void => {
+      candidate = next
+      if (candidate === undefined) { highlight.style.display = 'none'; pickerOverlay.status.textContent = t('text.pickerHint'); return }
+      const rect = textPickCandidateRect(candidate)
+      Object.assign(highlight.style, {
+        display: 'block', left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`,
+        borderColor: candidate.exclusion === null ? '#16a3c7' : '#ef4444',
+        background: candidate.exclusion === null ? 'rgba(22,163,199,.12)' : 'rgba(239,68,68,.12)',
+      })
+      pickerOverlay.status.textContent = candidate.exclusion === null ? `${t('text.pickerHint')} · ${candidate.sample}` : blockedText(candidate.exclusion)
+    }
+    const candidateFromPoint = (x: number, y: number): TextPickCandidate | undefined => {
+      const origin = typeof document.elementFromPoint === 'function' ? document.elementFromPoint(x, y) : null
+      return createTextPickCandidate(origin, root, { x, y })
+    }
+    const move = (event: PointerEvent): void => {
+      if (pickerOverlay.mode() === 'select') showCandidate(candidateFromPoint(event.clientX, event.clientY))
+    }
+    let keyboardCandidates: TextPickCandidate[] = []
+    let keyboardIndex = -1
+    const refreshKeyboardCandidates = (): void => {
+      keyboardCandidates = listTextPickCandidates(root).filter(item => {
+        const style = getComputedStyle(item.element)
+        const rect = textPickCandidateRect(item)
+        return style.visibility !== 'hidden' && style.display !== 'none' && rect.width >= 1 && rect.height >= 1
+      })
+      keyboardIndex = -1
+    }
+    const returnToStudio = (focus: CopyEditorFocus | null): void => {
+      setCopyFocus(focus)
+      setPickingText(false)
+      setOpen(true)
+      setTab('copy')
+      if (focus === null) window.setTimeout(() => { studioRef.current?.querySelector<HTMLElement>('[data-text-picker]')?.focus() }, 120)
+    }
+    const finish = (selected?: TextPickCandidate): void => {
+      if (selected === undefined) { returnToStudio(null); return }
+      if (selected.exclusion !== null) { showCandidate(selected); return }
+      const fixedSlot = fixedCopySlotForTarget(selected.element, selected.property)
+      if (fixedSlot !== undefined) { returnToStudio({ kind: 'fixed', id: fixedSlot }); return }
+      const targetKey = textOverrideTargetKey(selected.target)
+      const existing = draft.textOverrides.find(rule => textOverrideTargetKey(rule.target) === targetKey)
+      if (existing !== undefined) { returnToStudio({ kind: 'free', id: existing.id }); return }
+      if (draft.textOverrides.length >= MAX_TEXT_OVERRIDE_RULES) { returnToStudio(null); return }
+      const rule: TextOverrideRule = {
+        id: makeSkinId('text'),
+        name: selected.sample.slice(0, 80),
+        sample: selected.sample.slice(0, 300),
+        target: selected.target,
+        replacements: {},
+      }
+      updateDraft(next => { if (next.textOverrides.length < MAX_TEXT_OVERRIDE_RULES) next.textOverrides.push(rule) })
+      returnToStudio({ kind: 'free', id: rule.id })
+    }
+    const setPickerMode = (mode: PickerMode): void => {
+      pickerOverlay.setMode(mode)
+      candidate = undefined
+      highlight.style.display = 'none'
+      if (mode === 'interact') {
+        pickerOverlay.status.textContent = t('picker.interactHint')
+        return
+      }
+      pickerOverlay.status.textContent = t('text.pickerHint')
+      refreshKeyboardCandidates()
+      const focused = createTextPickCandidate(document.activeElement, root)
+      if (focused !== undefined) {
+        keyboardIndex = keyboardCandidates.findIndex(item => textOverrideTargetKey(item.target) === textOverrideTargetKey(focused.target))
+        showCandidate(focused)
+      }
+    }
+    const controlPointerDown = (event: Event): void => {
+      const mode = pickerOverlay.modeFromTarget(event.target)
+      if (mode === undefined) return
+      event.preventDefault(); event.stopImmediatePropagation(); setPickerMode(mode)
+    }
+    const click = (event: MouseEvent): void => {
+      const mode = pickerOverlay.modeFromTarget(event.target)
+      if (mode !== undefined) { event.preventDefault(); event.stopImmediatePropagation(); setPickerMode(mode); return }
+      if (event.target instanceof Element && event.target.closest('[data-dsh-skin-studio-ui]') !== null) {
+        event.preventDefault(); event.stopImmediatePropagation(); return
+      }
+      if (pickerOverlay.mode() === 'interact') return
+      event.preventDefault(); event.stopImmediatePropagation()
+      const selected = candidateFromPoint(event.clientX, event.clientY)
+        ?? createTextPickCandidate(event.target as Element, root)
+        ?? candidate
+      finish(selected)
+    }
+    const keydown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === 'F2') {
+        event.preventDefault(); event.stopImmediatePropagation()
+        setPickerMode(pickerOverlay.mode() === 'select' ? 'interact' : 'select')
+        return
+      }
+      const controlMode = pickerOverlay.modeFromTarget(event.target)
+      if (controlMode !== undefined && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault(); event.stopImmediatePropagation(); setPickerMode(controlMode); return
+      }
+      if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); finish(); return }
+      if (pickerOverlay.mode() === 'interact') return
+      if (['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft'].includes(event.key) && keyboardCandidates.length > 0) {
+        event.preventDefault(); event.stopImmediatePropagation()
+        const direction = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1
+        keyboardIndex = (keyboardIndex + direction + keyboardCandidates.length) % keyboardCandidates.length
+        const next = keyboardCandidates[keyboardIndex]!
+        next.element.closest<HTMLElement>('button, a, input, textarea, [tabindex]')?.focus({ preventScroll: true })
+        showCandidate(next)
+        return
+      }
+      if ((event.key === 'Enter' || event.key === ' ') && candidate !== undefined) {
+        event.preventDefault(); event.stopImmediatePropagation(); finish(candidate); return
+      }
+      if (event.key === 'Tab') window.requestAnimationFrame(() => { showCandidate(createTextPickCandidate(document.activeElement, root)) })
+    }
+    const focusin = (event: FocusEvent): void => {
+      if (pickerOverlay.mode() === 'select') showCandidate(createTextPickCandidate(event.target as Element, root))
+    }
+    window.addEventListener('pointerdown', controlPointerDown, true)
+    window.addEventListener('mousedown', controlPointerDown, true)
+    document.addEventListener('pointermove', move, true)
+    document.addEventListener('click', click, true)
+    document.addEventListener('keydown', keydown, true)
+    document.addEventListener('focusin', focusin, true)
+    refreshKeyboardCandidates()
+    const firstFocusable = keyboardCandidates.find(item => item.element.closest<HTMLElement>('button, a, input, textarea, [tabindex]')?.tabIndex === 0)
+    if (firstFocusable !== undefined) {
+      keyboardIndex = keyboardCandidates.indexOf(firstFocusable)
+      firstFocusable.element.closest<HTMLElement>('button, a, input, textarea, [tabindex]')?.focus({ preventScroll: true })
+      showCandidate(firstFocusable)
+    }
+    return () => {
+      window.removeEventListener('pointerdown', controlPointerDown, true)
+      window.removeEventListener('mousedown', controlPointerDown, true)
+      document.removeEventListener('pointermove', move, true)
+      document.removeEventListener('click', click, true)
+      document.removeEventListener('keydown', keydown, true)
+      document.removeEventListener('focusin', focusin, true)
+      for (const hidden of hiddenOverlays) hidden.element.style.visibility = hidden.visibility
+      pickerOverlay.element.remove(); highlight.remove()
+    }
+  }, [pickingText, t])
 
   useEffect(() => {
     if (discardPending) studioRef.current?.querySelector<HTMLElement>(`.${css.discardPanel} button`)?.focus()
@@ -304,6 +533,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
 
   const closeNow = (): void => {
     setPickingComponent(false)
+    setPickingText(false)
     setOpen(false)
     setDraft(null)
     setEditingTokens(new Set())
@@ -493,6 +723,13 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
       else localized[language] = value
       if (Object.keys(localized).length === 0) delete next.copyOverrides[slotId]
       else next.copyOverrides[slotId] = localized
+    })
+  }
+
+  const updateTextOverride = (ruleId: string, mutate: (rule: TextOverrideRule) => void): void => {
+    updateDraft(next => {
+      const rule = next.textOverrides.find(item => item.id === ruleId)
+      if (rule !== undefined) mutate(rule)
     })
   }
 
@@ -764,6 +1001,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
               t={t}
               onPick={(slotId, file) => { void pickVisualAsset(slotId, file) }}
               onRemove={removeVisualAsset}
+              onBrandLayoutChange={layout => { updateDraft(next => { next.sidebarBrandLayout = layout }) }}
             />
           </section>
         )}
@@ -773,9 +1011,14 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
             <CopyOverrideEditor
               draft={draft}
               locale={controller.activeLocale()}
+              focus={copyFocus}
               t={t}
               onChange={updateCopyOverride}
               onReset={slotId => { updateDraft(next => { delete next.copyOverrides[slotId] }) }}
+              onPickText={() => { setCopyFocus(null); setOpen(false); setPickingText(true) }}
+              onTextNameChange={(ruleId, value) => { updateTextOverride(ruleId, rule => { rule.name = value }) }}
+              onTextChange={(ruleId, language, value) => { updateTextOverride(ruleId, rule => { if (value.trim() === '') delete rule.replacements[language]; else rule.replacements[language] = value }) }}
+              onTextRemove={ruleId => { updateDraft(next => { next.textOverrides = next.textOverrides.filter(rule => rule.id !== ruleId) }) }}
             />
           </section>
         )}

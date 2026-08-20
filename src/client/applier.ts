@@ -5,12 +5,16 @@ import type { ComponentMediaRule, SkinManifestV1, SkinMode, ThemeTokenModes } fr
 import { COPY_SLOT_IDS, VISUAL_ASSET_SLOT_IDS, type CopySlotId, type SkinLocale, type VisualAssetSlotId } from '../skin-slots.ts'
 import { buildThemeTokenOverrides } from '../tokens.ts'
 import { defaultCopyValue, findCopySlotTargets, findVisualSlotTargets, type CopyTargetProperty } from './semantic-slots.ts'
+import { findTextOverrideTargets, type ResolvedTextTarget } from './text-targets.ts'
 
 const SOURCE = 'dsh-skin-studio'
 const SYSTEM_UI = '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif'
 const SYSTEM_CODE = '"SFMono-Regular", Consolas, "Liberation Mono", monospace'
 const MAX_COMPONENT_LAYERS = 200
 const MAX_COMPONENT_VIDEO_LAYERS = 12
+const SIDEBAR_WORDMARK_SPLIT_HEIGHT = 32
+const SIDEBAR_WORDMARK_SINGLE_WIDTH = 188
+const SIDEBAR_WORDMARK_SINGLE_ROW_HEIGHT = 72
 
 interface ComponentLayerState {
   layer: HTMLSpanElement
@@ -29,6 +33,11 @@ interface VisualSlotTargetState {
   replacement: HTMLImageElement
   display: string
   observedParent: Element | null
+  slotId: VisualAssetSlotId
+  overflowTarget: HTMLElement | null
+  overflow: string
+  layoutTarget: HTMLElement | null
+  layoutHeight: string
 }
 
 interface CopySlotTargetState {
@@ -36,6 +45,24 @@ interface CopySlotTargetState {
   property: CopyTargetProperty
   original: string
   lastApplied: string
+}
+
+interface SyncedAriaState {
+  element: HTMLElement
+  original: string
+  lastApplied: string
+}
+
+interface TextOverrideTargetState {
+  target: ResolvedTextTarget
+  original: string
+  lastApplied: string
+  aria?: SyncedAriaState
+}
+
+interface HiddenBrandMarkState {
+  element: HTMLElement
+  display: string
 }
 
 export class SkinApplier {
@@ -61,7 +88,9 @@ export class SkinApplier {
   private visibleComponentVideos = new Set<HTMLVideoElement>()
   private componentFrame: number | undefined
   private visualSlotTargets = new Map<VisualAssetSlotId, Map<Element, VisualSlotTargetState>>()
+  private hiddenBrandMarkSeats = new Map<HTMLElement, HiddenBrandMarkState>()
   private copySlotTargets = new Map<CopySlotId, Map<HTMLElement, Map<CopyTargetProperty, CopySlotTargetState>>>()
+  private textOverrideTargets = new Map<string, Map<Node, TextOverrideTargetState>>()
   private semanticAssetUrls = new Map<string, string>()
   private semanticObserver: MutationObserver | undefined
   private semanticResizeObserver: ResizeObserver | undefined
@@ -166,8 +195,9 @@ export class SkinApplier {
       if (blob !== undefined && descriptor !== undefined) this.semanticAssetUrls.set(assetId, URL.createObjectURL(blob))
     }
     const hasVisualOverrides = Object.keys(skin.visualAssetOverrides).length > 0
-    const hasCopyOverrides = Object.keys(skin.copyOverrides).length > 0
-    if (!hasVisualOverrides && !hasCopyOverrides) return
+    const hasCopyOverrides = Object.keys(skin.copyOverrides).some(slotId => slotId !== 'settings.title')
+    const hasTextOverrides = skin.textOverrides.length > 0
+    if (!hasVisualOverrides && !hasCopyOverrides && !hasTextOverrides) return
     if (typeof MutationObserver !== 'undefined') {
       this.semanticObserver = new MutationObserver(this.scheduleSemanticRefresh)
       this.semanticObserver.observe(document.body, {
@@ -175,7 +205,10 @@ export class SkinApplier {
         subtree: true,
         characterData: true,
         attributes: true,
-        attributeFilter: ['aria-label', 'aria-labelledby', 'placeholder'],
+        attributeFilter: [
+          'aria-label', 'aria-labelledby', 'aria-controls', 'aria-expanded', 'aria-selected',
+          'class', 'contenteditable', 'data-chat-flow-kind', 'data-testid', 'href', 'id', 'placeholder', 'role', 'title',
+        ],
       })
     }
     if (hasVisualOverrides) {
@@ -200,6 +233,19 @@ export class SkinApplier {
     replacement.src = url
     const className = target.getAttribute('class')
     if (className !== null) replacement.setAttribute('class', className)
+    const closestButton = target.closest('button')
+    const overflowTarget = slotId === 'sidebar-brand-wordmark' && closestButton instanceof HTMLElement
+      ? closestButton
+      : null
+    const overflow = overflowTarget?.style.overflow ?? ''
+    if (overflowTarget !== null) overflowTarget.style.overflow = 'visible'
+    const layoutTarget = slotId === 'sidebar-brand-wordmark'
+      && this.current?.sidebarBrandLayout === 'single'
+      && closestButton?.parentElement instanceof HTMLElement
+      ? closestButton.parentElement
+      : null
+    const layoutHeight = layoutTarget?.style.height ?? ''
+    if (layoutTarget !== null) layoutTarget.style.height = `${SIDEBAR_WORDMARK_SINGLE_ROW_HEIGHT}px`
     Object.assign(replacement.style, {
       display: computed.display === 'none' ? 'inline-block' : computed.display,
       width: 'auto',
@@ -210,7 +256,17 @@ export class SkinApplier {
       maxHeight: 'none',
       pointerEvents: 'none',
     })
-    const state = { original: target, replacement, display: target.style.display, observedParent: target.parentElement }
+    const state = {
+      original: target,
+      replacement,
+      display: target.style.display,
+      observedParent: target.parentElement,
+      slotId,
+      overflowTarget,
+      overflow,
+      layoutTarget,
+      layoutHeight,
+    }
     if (state.observedParent !== null) this.semanticResizeObserver?.observe(state.observedParent)
     replacement.addEventListener('load', () => { this.syncVisualSlotSize(state) }, { once: true })
     this.syncVisualSlotSize(state)
@@ -245,10 +301,19 @@ export class SkinApplier {
       && state.replacement.naturalWidth > 0 && state.replacement.naturalHeight > 0) {
       const targetWidth = Number.parseFloat(width)
       const targetHeight = Number.parseFloat(height)
-      const scale = Math.max(
-        targetWidth / state.replacement.naturalWidth,
-        targetHeight / state.replacement.naturalHeight,
-      )
+      const singleBrand = state.slotId === 'sidebar-brand-wordmark'
+        && this.current?.sidebarBrandLayout === 'single'
+      const visualWidth = targetWidth
+      const visualHeight = state.slotId === 'sidebar-brand-wordmark'
+        ? Math.max(targetHeight, SIDEBAR_WORDMARK_SPLIT_HEIGHT)
+        : targetHeight
+      const scaleForWidth = visualWidth / state.replacement.naturalWidth
+      const scaleForHeight = visualHeight / state.replacement.naturalHeight
+      const scale = singleBrand
+        ? SIDEBAR_WORDMARK_SINGLE_WIDTH / state.replacement.naturalWidth
+        : state.slotId === 'sidebar-brand-wordmark'
+          ? Math.min(scaleForWidth, scaleForHeight)
+          : Math.max(scaleForWidth, scaleForHeight)
       if (Number.isFinite(scale) && scale > 0) {
         state.replacement.style.width = `${state.replacement.naturalWidth * scale}px`
         state.replacement.style.height = `${state.replacement.naturalHeight * scale}px`
@@ -263,6 +328,8 @@ export class SkinApplier {
   private removeVisualSlotTarget(state: VisualSlotTargetState): void {
     if (state.observedParent !== null) this.semanticResizeObserver?.unobserve(state.observedParent)
     if (state.original.isConnected) state.original.style.display = state.display
+    if (state.overflowTarget?.isConnected === true) state.overflowTarget.style.overflow = state.overflow
+    if (state.layoutTarget?.isConnected === true) state.layoutTarget.style.height = state.layoutHeight
     state.replacement.remove()
   }
 
@@ -312,6 +379,39 @@ export class SkinApplier {
     }
   }
 
+  private expandedBrandMarkSeat(mark: Element): HTMLElement | undefined {
+    const button = mark.closest('button')
+    const wordmark = button?.querySelector('svg[viewBox="26 0 156 24"]')
+    if (button === null || button === undefined || wordmark === null || wordmark === undefined) return undefined
+    const identity = [...button.children].find(child => child.contains(mark) && child.contains(wordmark))
+    const seat = identity === undefined ? undefined : [...identity.children].find(child => child.contains(mark))
+    return seat instanceof HTMLElement ? seat : undefined
+  }
+
+  private refreshSidebarBrandLayout(): void {
+    if (this.current === null) return
+    const wordmarkAssetId = this.current.visualAssetOverrides['sidebar-brand-wordmark']
+    const single = this.current.sidebarBrandLayout === 'single'
+      && wordmarkAssetId !== undefined
+      && this.semanticAssetUrls.has(wordmarkAssetId)
+    const seats = single
+      ? findVisualSlotTargets('sidebar-brand-mark').map(mark => this.expandedBrandMarkSeat(mark)).filter((seat): seat is HTMLElement => seat !== undefined)
+      : []
+    const seatSet = new Set(seats)
+    for (const [seat, state] of this.hiddenBrandMarkSeats) {
+      if (!seat.isConnected || !seatSet.has(seat)) {
+        if (seat.isConnected) seat.style.display = state.display
+        this.hiddenBrandMarkSeats.delete(seat)
+      }
+    }
+    for (const seat of seats) {
+      if (!this.hiddenBrandMarkSeats.has(seat)) {
+        this.hiddenBrandMarkSeats.set(seat, { element: seat, display: seat.style.display })
+      }
+      seat.style.display = 'none'
+    }
+  }
+
   private refreshCopySlots(): void {
     if (this.current === null) return
     for (const slotId of COPY_SLOT_IDS) {
@@ -356,9 +456,108 @@ export class SkinApplier {
     }
   }
 
+  private textTargetKey(target: ResolvedTextTarget): Node {
+    return target.property === 'text' ? target.textNode! : target.element
+  }
+
+  private readTextOverrideTarget(state: Pick<TextOverrideTargetState, 'target'>): string {
+    return state.target.property === 'text'
+      ? state.target.textNode?.data ?? ''
+      : state.target.element.getAttribute('placeholder') ?? ''
+  }
+
+  private writeTextOverrideTarget(state: Pick<TextOverrideTargetState, 'target'>, value: string): void {
+    if (state.target.property === 'text') {
+      if (state.target.textNode !== undefined && state.target.textNode.data !== value) state.target.textNode.data = value
+    } else if (state.target.element.getAttribute('placeholder') !== value) {
+      state.target.element.setAttribute('placeholder', value)
+    }
+  }
+
+  private matchingAriaTarget(state: Pick<TextOverrideTargetState, 'target' | 'original'>): HTMLElement | undefined {
+    const labelled = state.target.element.closest<HTMLElement>('[aria-label]')
+    return labelled?.getAttribute('aria-label') === state.original ? labelled : undefined
+  }
+
+  private refreshTextOverrideState(state: TextOverrideTargetState, custom: string): void {
+    const current = this.readTextOverrideTarget(state)
+    if (current !== state.lastApplied) state.original = current
+    if (state.aria !== undefined) {
+      const currentAria = state.aria.element.getAttribute('aria-label') ?? ''
+      if (currentAria !== state.aria.lastApplied) state.aria.original = currentAria
+      if (state.aria.original !== state.original) {
+        if (currentAria === state.aria.lastApplied) state.aria.element.setAttribute('aria-label', state.aria.original)
+        delete state.aria
+      }
+    }
+    if (state.aria === undefined) {
+      const element = this.matchingAriaTarget(state)
+      if (element !== undefined) state.aria = { element, original: state.original, lastApplied: custom }
+    }
+    state.lastApplied = custom
+    this.writeTextOverrideTarget(state, custom)
+    if (state.aria !== undefined) {
+      state.aria.lastApplied = custom
+      if (state.aria.element.getAttribute('aria-label') !== custom) state.aria.element.setAttribute('aria-label', custom)
+    }
+  }
+
+  private removeTextOverrideTarget(ruleId: string, state: TextOverrideTargetState): void {
+    const current = this.readTextOverrideTarget(state)
+    if (current !== state.lastApplied) state.original = current
+    this.writeTextOverrideTarget(state, state.original)
+    if (state.aria !== undefined) {
+      const currentAria = state.aria.element.getAttribute('aria-label') ?? ''
+      if (currentAria !== state.aria.lastApplied) state.aria.original = currentAria
+      if (state.aria.element.isConnected) state.aria.element.setAttribute('aria-label', state.aria.original)
+    }
+    if (state.target.element.getAttribute('data-dsh-skin-studio-text-override') === ruleId) {
+      state.target.element.removeAttribute('data-dsh-skin-studio-text-override')
+    }
+  }
+
+  private refreshTextOverrides(): void {
+    if (this.current === null) return
+    const ruleIds = new Set(this.current.textOverrides.map(rule => rule.id))
+    for (const [ruleId, states] of this.textOverrideTargets) {
+      if (ruleIds.has(ruleId)) continue
+      for (const state of states.values()) {
+        this.removeTextOverrideTarget(ruleId, state)
+      }
+      this.textOverrideTargets.delete(ruleId)
+    }
+    for (const rule of this.current.textOverrides) {
+      const custom = rule.replacements[this.locale]
+      const targets = custom === undefined ? [] : findTextOverrideTargets(rule.target)
+      const targetKeys = new Set(targets.map(target => this.textTargetKey(target)))
+      const states = this.textOverrideTargets.get(rule.id) ?? new Map<Node, TextOverrideTargetState>()
+      this.textOverrideTargets.set(rule.id, states)
+      for (const [key, state] of states) {
+        if (!key.isConnected || !targetKeys.has(key) || custom === undefined) {
+          this.removeTextOverrideTarget(rule.id, state)
+          states.delete(key)
+        }
+      }
+      if (custom === undefined) continue
+      for (const target of targets) {
+        const key = this.textTargetKey(target)
+        let state = states.get(key)
+        if (state === undefined) {
+          const original = target.property === 'text' ? target.textNode?.data ?? '' : target.element.getAttribute('placeholder') ?? ''
+          state = { target, original, lastApplied: custom }
+          states.set(key, state)
+          target.element.setAttribute('data-dsh-skin-studio-text-override', rule.id)
+        }
+        this.refreshTextOverrideState(state, custom)
+      }
+    }
+  }
+
   private refreshSemanticOverrides(): void {
     this.refreshVisualSlots()
+    this.refreshSidebarBrandLayout()
     this.refreshCopySlots()
+    this.refreshTextOverrides()
   }
 
   private scheduleSemanticRefresh = (): void => {
@@ -381,6 +580,14 @@ export class SkinApplier {
       for (const state of states.values()) this.removeVisualSlotTarget(state)
     }
     this.visualSlotTargets.clear()
+    for (const state of this.hiddenBrandMarkSeats.values()) {
+      if (state.element.isConnected) state.element.style.display = state.display
+    }
+    this.hiddenBrandMarkSeats.clear()
+    for (const [ruleId, states] of this.textOverrideTargets) {
+      for (const state of states.values()) this.removeTextOverrideTarget(ruleId, state)
+    }
+    this.textOverrideTargets.clear()
     for (const [slotId, elements] of this.copySlotTargets) {
       for (const properties of elements.values()) {
         for (const state of properties.values()) this.removeCopySlotTarget(slotId, state)
@@ -704,7 +911,7 @@ export class SkinApplier {
       const remainingVideos = isVideo ? Math.max(0, MAX_COMPONENT_VIDEO_LAYERS - videoLayerCount) : remainingLayers
       const targetSet = new Set(targets.slice(0, Math.min(remainingLayers, remainingVideos)))
       for (const [target, state] of layers) {
-        if (!target.isConnected || !targetSet.has(target)) {
+        if (!target.isConnected || !targetSet.has(target) || !state.layer.isConnected || state.layer.parentElement !== target) {
           this.removeComponentLayer(target, state)
           layers.delete(target)
         }

@@ -4,6 +4,7 @@ export type SkinLocale = (typeof SKIN_LOCALES)[number]
 export const VISUAL_ASSET_SLOT_IDS = [
   'hero-whale-logo',
   'hero-backdrop-illustration',
+  'sidebar-brand-mark',
   'sidebar-brand-wordmark',
   'workspace-folder-icon',
 ] as const
@@ -57,15 +58,26 @@ export const VISUAL_ASSET_SLOTS: readonly VisualAssetSlotDefinition[] = [
     fallback: { zh: '定位失败时保留 DSH 原柔光背景。', en: 'Keeps the DSH glow when the slot cannot be located.' },
   },
   {
-    id: 'sidebar-brand-wordmark',
-    name: { zh: '侧边栏品牌标志', en: 'Sidebar brand wordmark' },
-    description: { zh: '替换侧边栏顶部的 DeepSeek Harness 品牌图形。', en: 'Replaces the DeepSeek Harness wordmark at the top of the sidebar.' },
-    originalElement: 'Sidebar BrandWordmark inline SVG (viewBox 182 x 24)',
+    id: 'sidebar-brand-mark',
+    name: { zh: '侧边栏品牌图标', en: 'Sidebar brand mark' },
+    description: { zh: '替换侧边栏顶部左侧的 DSH 鲸鱼图标。', en: 'Replaces the DSH whale mark on the left side of the sidebar brand.' },
+    originalElement: 'Sidebar sidebar.brand.mark FishLogo inline SVG',
     acceptedMimeTypes: IMAGE_MIME_TYPES,
-    recommendedSize: '728 x 96 px',
-    aspectRatio: '182:24',
-    compatibility: 'DSH rc.6 and current BrandWordmark geometry',
-    fallback: { zh: '定位失败时保留 DSH 原品牌标志。', en: 'Keeps the DSH wordmark when the slot cannot be located.' },
+    recommendedSize: '96 x 71 px',
+    aspectRatio: '23.16:17.04',
+    compatibility: 'DSH rc.8 split sidebar brand mark slot',
+    fallback: { zh: '定位失败时保留 DSH 原鲸鱼图标。', en: 'Keeps the DSH whale mark when the slot cannot be located.' },
+  },
+  {
+    id: 'sidebar-brand-wordmark',
+    name: { zh: '侧边栏品牌字样', en: 'Sidebar brand wordmark' },
+    description: { zh: '替换侧边栏顶部右侧的 DeepSeek Harness 品牌字样。', en: 'Replaces the DeepSeek Harness wordmark on the right side of the sidebar brand.' },
+    originalElement: 'Sidebar BrandWordmark inline SVG (rc.6 full wordmark or rc.8 sidebar.brand.name)',
+    acceptedMimeTypes: IMAGE_MIME_TYPES,
+    recommendedSize: '624 x 96 px',
+    aspectRatio: '156:24',
+    compatibility: 'DSH rc.6 full wordmark and rc.8 split sidebar brand name slot',
+    fallback: { zh: '定位失败时保留 DSH 原品牌字样。', en: 'Keeps the DSH wordmark when the slot cannot be located.' },
   },
   {
     id: 'workspace-folder-icon',
@@ -97,6 +109,9 @@ export const COPY_SLOTS: readonly CopySlotDefinition[] = [
   { id: 'sidebar.new-session', name: { zh: '侧边栏新会话', en: 'Sidebar new-session label' }, description: { zh: '侧边栏新建会话按钮的可见文字和无障碍名称。', en: 'Visible and accessible label of the sidebar new-session button.' }, original: { zh: '新会话', en: 'New Session' }, maxLength: 60, compatibility: 'sidebar new-session button' },
   { id: 'settings.title', name: { zh: '设置标题', en: 'Settings title' }, description: { zh: 'DSH 设置窗口的标题。', en: 'Title of the DSH settings dialog.' }, original: { zh: '设置', en: 'Settings' }, maxLength: 60, compatibility: 'settings dialog labelled heading' },
 ]
+
+/** settings.title remains decodable in v5 for lossless legacy round-trips, but is intentionally inactive. */
+export const EDITABLE_COPY_SLOTS: readonly CopySlotDefinition[] = COPY_SLOTS.filter(slot => slot.id !== 'settings.title')
 
 export const VISUAL_ASSET_SLOT_SET: ReadonlySet<string> = new Set(VISUAL_ASSET_SLOT_IDS)
 export const COPY_SLOT_SET: ReadonlySet<string> = new Set(COPY_SLOT_IDS)

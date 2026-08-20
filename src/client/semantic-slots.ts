@@ -33,10 +33,14 @@ function heroFishTargets(root: ParentNode): SVGElement[] {
       .some(child => isOriginalCopy(child.textContent, 'welcome.title') || child.getAttribute(COPY_MARKER) === 'welcome.title'))
 }
 
-function heroHeadlineChild(root: ParentNode, index: number): HTMLElement | undefined {
-  const headline = heroFishTargets(root)[0]?.parentElement?.parentElement
-  const child = headline?.children[index]
-  return child instanceof HTMLElement ? child : undefined
+function heroHeadlineChild(root: ParentNode, slotId: 'welcome.title' | 'welcome.badge'): HTMLElement | undefined {
+  const fish = heroFishTargets(root)[0]
+  for (let ancestor = fish?.parentElement; ancestor !== null && ancestor !== undefined; ancestor = ancestor.parentElement) {
+    const child = [...ancestor.children].find(candidate => candidate instanceof HTMLElement
+      && (isOriginalCopy(candidate.textContent, slotId) || candidate.getAttribute(COPY_MARKER) === slotId))
+    if (child instanceof HTMLElement) return child
+  }
+  return undefined
 }
 
 function isFolderSvg(svg: SVGElement): boolean {
@@ -47,11 +51,17 @@ function isFolderSvg(svg: SVGElement): boolean {
     || path.getAttribute('transform') === 'translate(1.5 2.429)')
 }
 
+function sidebarBrandMarkTargets(root: ParentNode): SVGElement[] {
+  return elements<SVGElement>(root, 'svg[width="24"][viewBox="0 0 23.16 17.04"]')
+    .filter(mark => mark.closest('button') !== null)
+}
+
 export function findVisualSlotTargets(id: VisualAssetSlotId, root: ParentNode = document): Element[] {
   switch (id) {
     case 'hero-whale-logo': return heroFishTargets(root)
     case 'hero-backdrop-illustration': return elements(root, 'svg[viewBox="0 0 1051 468"]')
-    case 'sidebar-brand-wordmark': return elements(root, 'svg[viewBox="0 0 182 24"]')
+    case 'sidebar-brand-mark': return sidebarBrandMarkTargets(root)
+    case 'sidebar-brand-wordmark': return elements(root, 'svg[viewBox="0 0 182 24"], svg[viewBox="26 0 156 24"]')
     case 'workspace-folder-icon': return elements<SVGElement>(root, 'svg[viewBox="0 0 16 16"]')
       .filter(svg => isFolderSvg(svg) && (svg.closest('[role="treeitem"]') !== null || svg.closest('button[aria-haspopup="menu"]') !== null))
   }
@@ -65,11 +75,11 @@ function directTextChild(button: HTMLElement, slotId: CopySlotId): HTMLElement |
 export function findCopySlotTargets(id: CopySlotId, root: ParentNode = document): CopySlotTarget[] {
   switch (id) {
     case 'welcome.title': {
-      const element = heroHeadlineChild(root, 1)
+      const element = heroHeadlineChild(root, id)
       return element === undefined ? [] : [{ element, property: 'text' }]
     }
     case 'welcome.badge': {
-      const element = heroHeadlineChild(root, 2)
+      const element = heroHeadlineChild(root, id)
       return element === undefined ? [] : [{ element, property: 'text' }]
     }
     case 'composer.welcome-placeholder': {
@@ -97,17 +107,18 @@ export function findCopySlotTargets(id: CopySlotId, root: ParentNode = document)
       ]
     }
     case 'settings.title': {
-      for (const dialog of elements<HTMLElement>(root, '[role="dialog"]')) {
-        const labelledBy = dialog.getAttribute('aria-labelledby')
-        const heading = labelledBy === null ? undefined : document.getElementById(labelledBy)
-        if (heading instanceof HTMLElement
-          && (isOriginalCopy(heading.textContent, id) || heading.getAttribute(COPY_MARKER) === id)) {
-          return [{ element: heading, property: 'text' }]
-        }
-      }
+      // Retained in the public schema for legacy data only. Settings copy is not applied in v5.
       return []
     }
   }
+}
+
+export function fixedCopySlotForTarget(element: HTMLElement, property: 'text' | 'placeholder', root: ParentNode = document): CopySlotId | undefined {
+  for (const slotId of COPY_SLOT_IDS) {
+    if (slotId === 'settings.title') continue
+    if (findCopySlotTargets(slotId, root).some(target => target.element === element && target.property === property)) return slotId
+  }
+  return undefined
 }
 
 export interface SemanticSlotAvailability {

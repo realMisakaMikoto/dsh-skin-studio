@@ -24,6 +24,19 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.slice().buffer as ArrayBuffer
 }
 
+async function blobBytes(blob: Blob): Promise<Uint8Array> {
+  if (typeof blob.arrayBuffer === 'function') return new Uint8Array(await blob.arrayBuffer())
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) resolve(new Uint8Array(reader.result))
+      else reject(new Error('Unable to read Blob bytes'))
+    }
+    reader.onerror = () => { reject(reader.error ?? new Error('Unable to read Blob bytes')) }
+    reader.readAsArrayBuffer(blob)
+  })
+}
+
 export async function sha256(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', toArrayBuffer(bytes))
   return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('')
@@ -40,7 +53,7 @@ export function sniffMime(bytes: Uint8Array): SkinAssetDescriptor['mimeType'] | 
 }
 
 export async function describeAsset(id: string, kind: AssetKind, blob: Blob): Promise<SkinAssetDescriptor> {
-  const bytes = new Uint8Array(await blob.arrayBuffer())
+  const bytes = await blobBytes(blob)
   const mimeType = sniffMime(bytes)
   if (mimeType === undefined) throw new SkinPackageError('invalid-asset')
   const imageMime = mimeType.startsWith('image/')
@@ -66,7 +79,7 @@ export async function exportSkinPackage(manifest: SkinManifestV1, assets: Readon
   for (const descriptor of manifest.assets) {
     const blob = assets.get(descriptor.id)
     if (blob === undefined) throw new SkinPackageError('missing-asset')
-    const bytes = new Uint8Array(await blob.arrayBuffer())
+    const bytes = await blobBytes(blob)
     if (bytes.byteLength !== descriptor.size || sniffMime(bytes) !== descriptor.mimeType) throw new SkinPackageError('invalid-asset')
     if (await sha256(bytes) !== descriptor.sha256) throw new SkinPackageError('hash-mismatch')
     files[descriptor.path] = bytes
@@ -91,7 +104,7 @@ export async function importSkinPackage(file: Blob, options: ImportSkinPackageOp
   let files: Record<string, Uint8Array>
   try {
     let expandedBytes = 0
-    files = unzipSync(new Uint8Array(await file.arrayBuffer()), { filter: entry => {
+    files = unzipSync(await blobBytes(file), { filter: entry => {
       if (entry.name !== 'manifest.json' && !/^assets\/[a-z0-9._-]+$/i.test(entry.name)) throw new SkinPackageError('invalid-asset')
       expandedBytes += entry.originalSize
       if (expandedBytes > MAX_PACKAGE_BYTES) throw new SkinPackageError('too-large')

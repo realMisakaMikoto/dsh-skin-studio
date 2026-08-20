@@ -1,4 +1,5 @@
 import { BUILTIN_SKINS } from './presets.ts'
+import { BUNDLED_SKIN_PACKAGES, loadBundledSkinPackage } from './builtin-skins.ts'
 import { decodeSkinManifest, type SkinManifestV1 } from './model.ts'
 
 const DB_NAME = 'dsh-skin-studio'
@@ -48,6 +49,15 @@ export class SkinRepository {
       const current = await this.get(skin.id)
       const untouchedBuiltin = current?.author === 'dsh-skin-studio' && current.createdAt === current.updatedAt
       if (current === undefined || untouchedBuiltin) await this.save(structuredClone(skin))
+    }
+    for (const entry of BUNDLED_SKIN_PACKAGES) {
+      const current = await this.get(entry.id)
+      const untouchedBuiltin = current?.author === 'dsh-skin-studio' && current.createdAt === current.updatedAt
+      const needsRefresh = untouchedBuiltin && current.updatedAt !== entry.updatedAt
+      if (current === undefined || needsRefresh) {
+        const imported = await loadBundledSkinPackage(entry)
+        await this.save(imported.manifest, imported.assets)
+      }
     }
   }
 

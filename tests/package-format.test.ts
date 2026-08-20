@@ -56,10 +56,18 @@ describe('.dshskin packages', () => {
     const descriptor = await describeAsset('hero-mark', 'visual-asset', blob)
     skin.assets = [descriptor]
     skin.visualAssetOverrides['hero-whale-logo'] = descriptor.id
+    skin.sidebarBrandLayout = 'single'
     skin.copyOverrides['welcome.title'] = { zh: '今天一起写代码', en: 'Let us build today' }
+    skin.textOverrides = [{
+      id: 'text-save', name: 'Save button', sample: 'Save',
+      target: { anchor: { tagName: 'button', role: null, classNames: ['abc_save'] }, path: [], property: 'text', textNodeIndex: 0 },
+      replacements: { zh: '保存', en: 'Save now' },
+    }]
     const imported = await importSkinPackage(await exportSkinPackage(skin, new Map([[descriptor.id, blob]])))
     expect(imported.manifest.visualAssetOverrides['hero-whale-logo']).toBe('hero-mark')
+    expect(imported.manifest.sidebarBrandLayout).toBe('single')
     expect(imported.manifest.copyOverrides['welcome.title']?.en).toBe('Let us build today')
+    expect(imported.manifest.textOverrides[0]?.replacements.zh).toBe('保存')
     expect(imported.assets.get('hero-mark')?.type).toBe('image/png')
   })
 

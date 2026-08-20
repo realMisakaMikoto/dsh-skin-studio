@@ -135,6 +135,11 @@ describe('SkinApplier', () => {
     root.append(second)
     await new Promise(resolve => { window.setTimeout(resolve, 30) })
     expect(second.querySelector('[data-dsh-skin-studio-component-layer="component-composer"]')).not.toBeNull()
+    firstLayer?.remove()
+    await new Promise(resolve => { window.setTimeout(resolve, 30) })
+    const rebuiltLayer = first.querySelector('[data-dsh-skin-studio-component-layer="component-composer"]')
+    expect(rebuiltLayer).not.toBeNull()
+    expect(rebuiltLayer).not.toBe(firstLayer)
     applier.dispose()
     expect(document.querySelector('[data-dsh-skin-studio-component-layer]')).toBeNull()
     expect(first.style.position).toBe('')
@@ -262,10 +267,111 @@ describe('SkinApplier', () => {
     applier.dispose()
   })
 
+  it('replaces and restores the rc.8 sidebar mark and wordmark separately', async () => {
+    vi.spyOn(URL, 'createObjectURL')
+      .mockReturnValueOnce('blob:sidebar-mark')
+      .mockReturnValueOnce('blob:sidebar-wordmark')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const root = document.createElement('div')
+    root.id = 'root'
+    root.innerHTML = `<aside><button aria-label="New session">
+      <span data-brand-identity>
+        <span><div><svg width="24" height="17.658" viewBox="0 0 23.16 17.04"></svg></div></span>
+        <span><div><svg width="156" height="24" viewBox="26 0 156 24"></svg></div></span>
+      </span>
+    </button></aside>`
+    document.body.append(root)
+    const brandButton = root.querySelector<HTMLButtonElement>('button')!
+    const mark = root.querySelector<SVGElement>('svg[viewBox="0 0 23.16 17.04"]')!
+    const wordmark = root.querySelector<SVGElement>('svg[viewBox="26 0 156 24"]')!
+    const ctx = { theme: { getTheme: () => ({ active: { colorScheme: 'light' } }), overrideTokens: vi.fn(() => vi.fn()) } }
+    const skin = createBlankSkin('rc.8 sidebar brand')
+    skin.assets = [
+      { id: 'sidebar-mark', path: 'assets/sidebar-mark.png', kind: 'visual-asset', mimeType: 'image/png', size: 8, sha256: '0'.repeat(64) },
+      { id: 'sidebar-wordmark', path: 'assets/sidebar-wordmark.png', kind: 'visual-asset', mimeType: 'image/png', size: 8, sha256: '0'.repeat(64) },
+    ]
+    skin.visualAssetOverrides['sidebar-brand-mark'] = 'sidebar-mark'
+    skin.visualAssetOverrides['sidebar-brand-wordmark'] = 'sidebar-wordmark'
+    const applier = new SkinApplier(ctx as never)
+    await applier.apply(skin, new Map([
+      ['sidebar-mark', new Blob(['mark'], { type: 'image/png' })],
+      ['sidebar-wordmark', new Blob(['wordmark'], { type: 'image/png' })],
+    ]))
+    expect(mark.style.display).toBe('none')
+    expect(wordmark.style.display).toBe('none')
+    expect(brandButton.style.overflow).toBe('visible')
+    const markReplacement = root.querySelector<HTMLImageElement>('[data-dsh-skin-studio-visual-slot="sidebar-brand-mark"]')!
+    const wordmarkReplacement = root.querySelector<HTMLImageElement>('[data-dsh-skin-studio-visual-slot="sidebar-brand-wordmark"]')!
+    Object.defineProperty(markReplacement, 'naturalWidth', { configurable: true, value: 96 })
+    Object.defineProperty(markReplacement, 'naturalHeight', { configurable: true, value: 71 })
+    Object.defineProperty(wordmarkReplacement, 'naturalWidth', { configurable: true, value: 300 })
+    Object.defineProperty(wordmarkReplacement, 'naturalHeight', { configurable: true, value: 100 })
+    markReplacement.dispatchEvent(new Event('load'))
+    wordmarkReplacement.dispatchEvent(new Event('load'))
+    expect(markReplacement.style.width).toBe('24px')
+    expect(Number.parseFloat(markReplacement.style.height)).toBeCloseTo(17.75)
+    expect(wordmarkReplacement.style.width).toBe('96px')
+    expect(wordmarkReplacement.style.height).toBe('32px')
+    expect(root.querySelectorAll('[data-dsh-skin-studio-visual-slot]')).toHaveLength(2)
+    expect(root.querySelectorAll('[data-dsh-skin-studio-visual-slot="sidebar-brand-wordmark"]')).toHaveLength(1)
+    await applier.apply(null)
+    expect(mark.style.display).toBe('')
+    expect(wordmark.style.display).toBe('')
+    expect(brandButton.style.overflow).toBe('')
+    expect(root.querySelector('[data-dsh-skin-studio-visual-slot="sidebar-brand-wordmark"]')).toBeNull()
+    applier.dispose()
+  })
+
+  it('renders a single sidebar logo without hiding the collapsed rail mark', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:single-wordmark')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const root = document.createElement('div')
+    root.id = 'root'
+    root.innerHTML = `<aside>
+      <div data-logo-row><button aria-label="New session">
+          <span data-brand-identity>
+            <span data-brand-mark><div><svg width="24" height="17.658" viewBox="0 0 23.16 17.04"></svg></div></span>
+            <span><div><svg width="156" height="24" viewBox="26 0 156 24"></svg></div></span>
+          </span>
+        </button></div>
+      <button aria-label="Open sidebar">
+        <span><div><svg width="24" height="17.658" viewBox="0 0 23.16 17.04"></svg></div></span>
+        <svg width="16" height="16" viewBox="0 0 16 16"></svg>
+      </button>
+    </aside>`
+    document.body.append(root)
+    const brandButton = root.querySelector<HTMLButtonElement>('button[aria-label="New session"]')!
+    const logoRow = root.querySelector<HTMLElement>('[data-logo-row]')!
+    const expandedMarkSeat = root.querySelector<HTMLElement>('[data-brand-mark]')!
+    const collapsedMark = root.querySelector<SVGElement>('button[aria-label="Open sidebar"] svg[viewBox="0 0 23.16 17.04"]')!
+    const ctx = { theme: { getTheme: () => ({ active: { colorScheme: 'light' } }), overrideTokens: vi.fn(() => vi.fn()) } }
+    const skin = createBlankSkin('Single sidebar logo')
+    skin.sidebarBrandLayout = 'single'
+    skin.assets = [{ id: 'wordmark', path: 'assets/wordmark.png', kind: 'visual-asset', mimeType: 'image/png', size: 8, sha256: '0'.repeat(64) }]
+    skin.visualAssetOverrides['sidebar-brand-wordmark'] = 'wordmark'
+    const applier = new SkinApplier(ctx as never)
+    await applier.apply(skin, new Map([['wordmark', new Blob(['wordmark'], { type: 'image/png' })]]))
+    expect(expandedMarkSeat.style.display).toBe('none')
+    expect(collapsedMark.style.display).toBe('')
+    expect(brandButton.style.overflow).toBe('visible')
+    expect(logoRow.style.height).toBe('72px')
+    const replacement = root.querySelector<HTMLImageElement>('[data-dsh-skin-studio-visual-slot="sidebar-brand-wordmark"]')!
+    Object.defineProperty(replacement, 'naturalWidth', { configurable: true, value: 450 })
+    Object.defineProperty(replacement, 'naturalHeight', { configurable: true, value: 162 })
+    replacement.dispatchEvent(new Event('load'))
+    expect(replacement.style.width).toBe('188px')
+    expect(Number.parseFloat(replacement.style.height)).toBeCloseTo(162 * 188 / 450)
+    await applier.apply(null)
+    expect(expandedMarkSeat.style.display).toBe('')
+    expect(brandButton.style.overflow).toBe('')
+    expect(logoRow.style.height).toBe('')
+    applier.dispose()
+  })
+
   it('applies localized copy slots, switches locale, and restores defaults', async () => {
     const root = document.createElement('div')
     root.id = 'root'
-    root.innerHTML = '<main><div><span><svg width="34" viewBox="0 0 23.16 17.04"></svg></span><span>探索未至之境</span><span>预览版</span></div></main>'
+    root.innerHTML = '<main><div><span><div><svg width="34" height="25" viewBox="0 0 23.16 17.04"></svg></div></span><span>探索未至之境</span><span>预览版</span></div></main>'
     document.body.append(root)
     const title = root.querySelectorAll<HTMLElement>('span')[1]!
     const ctx = { theme: { getTheme: () => ({ active: { colorScheme: 'light' } }), overrideTokens: vi.fn(() => vi.fn()) } }
@@ -280,6 +386,106 @@ describe('SkinApplier', () => {
     expect(title.textContent).toBe('Into the Unknown')
     expect(title.hasAttribute('data-dsh-skin-studio-copy-slot')).toBe(false)
     applier.dispose()
+  })
+
+  it('applies free text to all matching direct nodes and restores React updates and aria labels', async () => {
+    const root = document.createElement('div')
+    root.id = 'root'
+    root.innerHTML = `<main>
+      <button class="abc_action" aria-label="Save"><svg></svg>Save</button>
+      <button class="abc_action" aria-label="Detailed action"><svg></svg>Save</button>
+      <div data-chat-flow-kind="assistant"><button class="abc_action" aria-label="Save"><svg></svg>Save</button></div>
+    </main>`
+    document.body.append(root)
+    const buttons = root.querySelectorAll<HTMLButtonElement>('.abc_action')
+    const first = buttons[0]!
+    const second = buttons[1]!
+    const excluded = buttons[2]!
+    const ctx = { theme: { getTheme: () => ({ active: { colorScheme: 'light' } }), overrideTokens: vi.fn(() => vi.fn()) } }
+    const skin = createBlankSkin('Free text')
+    skin.textOverrides = [{
+      id: 'text-action', name: 'Save action', sample: 'Save',
+      target: { anchor: { tagName: 'button', role: null, classNames: ['abc_action'] }, path: [], property: 'text', textNodeIndex: 1 },
+      replacements: { zh: '保存全部', en: 'Save all' },
+    }]
+    const applier = new SkinApplier(ctx as never)
+    await applier.apply(skin)
+    expect(first.childNodes[1]?.textContent).toBe('保存全部')
+    expect(second.childNodes[1]?.textContent).toBe('保存全部')
+    expect(excluded.childNodes[1]?.textContent).toBe('Save')
+    expect(first.querySelector('svg')).not.toBeNull()
+    expect(first.getAttribute('aria-label')).toBe('保存全部')
+    expect(second.getAttribute('aria-label')).toBe('Detailed action')
+
+    const main = root.querySelector<HTMLElement>('main')!
+    main.dataset.chatFlowKind = 'assistant'
+    await new Promise(resolve => { window.setTimeout(resolve, 30) })
+    expect(first.childNodes[1]?.textContent).toBe('Save')
+    expect(first.getAttribute('aria-label')).toBe('Save')
+    main.removeAttribute('data-chat-flow-kind')
+    await new Promise(resolve => { window.setTimeout(resolve, 30) })
+    expect(first.childNodes[1]?.textContent).toBe('保存全部')
+
+    applier.setLocale('en')
+    expect(first.childNodes[1]?.textContent).toBe('Save all')
+    first.childNodes[1]!.textContent = 'Save changed by host'
+    first.setAttribute('aria-label', 'Save changed by host')
+    const replacement = document.createElement('button')
+    replacement.className = 'abc_action'
+    replacement.setAttribute('aria-label', 'Save replacement')
+    replacement.innerHTML = '<svg></svg>Save replacement'
+    second.replaceWith(replacement)
+    await new Promise(resolve => { window.setTimeout(resolve, 30) })
+    expect(first.childNodes[1]?.textContent).toBe('Save all')
+    expect(first.getAttribute('aria-label')).toBe('Save all')
+    expect(replacement.childNodes[1]?.textContent).toBe('Save all')
+    expect(replacement.getAttribute('aria-label')).toBe('Save all')
+
+    const withoutRule = structuredClone(skin)
+    withoutRule.textOverrides = []
+    await applier.apply(withoutRule)
+    expect(first.childNodes[1]?.textContent).toBe('Save changed by host')
+    expect(first.getAttribute('aria-label')).toBe('Save changed by host')
+    expect(replacement.childNodes[1]?.textContent).toBe('Save replacement')
+    expect(replacement.getAttribute('aria-label')).toBe('Save replacement')
+
+    await applier.apply(skin)
+    await applier.apply(null)
+    expect(first.childNodes[1]?.textContent).toBe('Save changed by host')
+    applier.dispose()
+  })
+
+  it('applies and restores free-text placeholders but never legacy settings copy', async () => {
+    const root = document.createElement('div')
+    root.id = 'root'
+    root.innerHTML = '<main><div class="abc_composer"><input placeholder="Ask anything"></div></main><div role="dialog"><h2>Settings</h2></div>'
+    document.body.append(root)
+    const input = root.querySelector<HTMLInputElement>('input')!
+    input.value = 'User data'
+    const settings = root.querySelector<HTMLElement>('h2')!
+    const ctx = { theme: { getTheme: () => ({ active: { colorScheme: 'light' } }), overrideTokens: vi.fn(() => vi.fn()) } }
+    const skin = createBlankSkin('Placeholder')
+    skin.copyOverrides['settings.title'] = { zh: '不可应用' }
+    skin.textOverrides = [{
+      id: 'text-placeholder', name: 'Composer hint', sample: 'Ask anything',
+      target: {
+        anchor: { tagName: 'div', role: null, classNames: ['abc_composer'] },
+        path: [{ childIndex: 0, tagName: 'input', role: null, classNames: [] }],
+        property: 'placeholder',
+      },
+      replacements: { zh: '问点什么' },
+    }]
+    const applier = new SkinApplier(ctx as never)
+    await applier.apply(skin)
+    expect(input.placeholder).toBe('问点什么')
+    expect(input.value).toBe('User data')
+    expect(settings.textContent).toBe('Settings')
+    applier.setLocale('en')
+    expect(input.placeholder).toBe('Ask anything')
+    applier.setLocale('zh')
+    expect(input.placeholder).toBe('问点什么')
+    applier.dispose()
+    expect(input.placeholder).toBe('Ask anything')
   })
 
   it('skips unavailable semantic slots without failing the skin', async () => {

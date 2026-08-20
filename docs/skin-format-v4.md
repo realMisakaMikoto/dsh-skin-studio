@@ -8,6 +8,7 @@
 {
   "format": "dsh-skin-studio",
   "formatVersion": 4,
+  "sidebarBrandLayout": "split",
   "visualAssetOverrides": {
     "hero-whale-logo": "asset-hero"
   },
@@ -22,6 +23,8 @@
 
 visualAssetOverrides 的 key 必须来自插件公开的 Visual Asset Slot 目录，value 必须引用 kind 为 visual-asset 的资源。manifest 不保存 DOM selector、className、locale key 或节点层级。
 
+sidebarBrandLayout 只允许 `split` 或 `single`。`split` 分别显示左侧品牌图标和右侧品牌字样；`single` 在展开侧边栏时隐藏左侧图标，让右侧自定义图片按 188px 原品牌宽度显示，并将顶部品牌行增高到 72px，收起侧边栏后仍显示左侧图标。缺少该字段的旧 v4 皮肤按 `split` 处理。
+
 copyOverrides 的 key 必须来自 Copy Slot 目录。每项只允许 zh、en 两个纯文本字段，至少提供一种语言；空字符串、控制字符和超过该 slot 长度限制的内容会被拒绝。文本永远通过 textContent 或受控属性写入，不解释为 HTML。
 
 ## v4 Visual Asset Slot
@@ -30,12 +33,13 @@ copyOverrides 的 key 必须来自 Copy Slot 目录。每项只允许 zh、en �
 | --- | --- | --- | --- |
 | hero-whale-logo | 新会话 Hero 的 FishLogo | 272 × 200，23.16:17.04 | 保留 DSH 原鲸鱼 |
 | hero-backdrop-illustration | 新会话 HeroGlow | 2102 × 936，1051:468 | 保留原柔光背景 |
-| sidebar-brand-wordmark | 侧边栏 BrandWordmark | 728 × 96，182:24 | 保留原品牌标志 |
+| sidebar-brand-mark | 侧边栏左侧品牌图标 | 96 × 71，23.16:17.04 | 保留原鲸鱼图标 |
+| sidebar-brand-wordmark | 侧边栏右侧品牌字样 | 624 × 96，156:24 | 保留原品牌字样 |
 | workspace-folder-icon | 工作区 FolderOpen/FolderClose | 64 × 64，1:1 | 未定位的图标保留原样 |
 
 视觉替换只接受 PNG、JPEG、WebP，单个文件不超过 5 MB。不接受任意 SVG，从而避免脚本、外部引用和 foreignObject 的复杂攻击面。
 
-运行时保持替换图的原始长宽比，并选择能让最终图片至少覆盖 DSH 原素材宽高的较大缩放倍数：scale = max(DSH 宽度 ÷ 素材宽度, DSH 高度 ÷ 素材高度)。例如 DSH 原素材为 1000 × 1000 时，200 × 300 的素材最终为 1000 × 1500；600 × 500 的素材最终为 1200 × 1000。一个方向与 DSH 原素材对齐，另一个方向允许超过；窗口尺寸变化时会重新计算。
+运行时保持替换图的原始长宽比。除右侧 `sidebar-brand-wordmark` 外，选择能让最终图片至少覆盖 DSH 原素材宽高的较大缩放倍数：scale = max(DSH 宽度 ÷ 素材宽度, DSH 高度 ÷ 素材高度)。例如 DSH 原素材为 1000 × 1000 时，200 × 300 的素材最终为 1000 × 1500；600 × 500 的素材最终为 1200 × 1000。一个方向与 DSH 原素材对齐，另一个方向允许超过。`sidebar-brand-wordmark` 的 `split` 模式使用 scale = min(...) 在 156 × 32 光学安全区内完整显示；`single` 模式固定宽度为 188px，高度按素材比例计算，并使用 72px 顶部品牌行避免裁切。窗口尺寸变化时会重新计算。
 
 ## v4 Copy Slot
 

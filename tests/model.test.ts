@@ -7,7 +7,7 @@ describe('skin manifest', () => {
     expect(decodeSkinManifest(BUILTIN_SKINS[0])).toEqual(BUILTIN_SKINS[0])
   })
 
-  it('migrates v1 through v3 and rejects future versions', () => {
+  it('migrates v1 through v4 and rejects future versions', () => {
     expect(migrateSkinManifest(BUILTIN_SKINS[0])).toBe(BUILTIN_SKINS[0])
     const legacy = structuredClone(BUILTIN_SKINS[0]!) as unknown as {
       formatVersion: number
@@ -33,11 +33,57 @@ describe('skin manifest', () => {
     delete legacyV3.visualAssetOverrides
     delete legacyV3.copyOverrides
     expect(decodeSkinManifest(legacyV3)).toMatchObject({
-      formatVersion: 4,
+      formatVersion: 5,
+      sidebarBrandLayout: 'split',
       visualAssetOverrides: {},
       copyOverrides: {},
+      textOverrides: [],
     })
-    expect(decodeSkinManifest({ ...BUILTIN_SKINS[0], formatVersion: 5 })).toBeUndefined()
+    const legacyV4 = structuredClone(BUILTIN_SKINS[0]!) as unknown as { formatVersion: number; sidebarBrandLayout?: unknown; textOverrides?: unknown }
+    legacyV4.formatVersion = 4
+    delete legacyV4.sidebarBrandLayout
+    delete legacyV4.textOverrides
+    expect(decodeSkinManifest(legacyV4)?.sidebarBrandLayout).toBe('split')
+    expect(decodeSkinManifest(legacyV4)?.textOverrides).toEqual([])
+    expect(decodeSkinManifest({ ...BUILTIN_SKINS[0], formatVersion: 6 })).toBeUndefined()
+  })
+
+  it('validates localized free-text targets and retains inactive legacy settings copy', () => {
+    const skin = structuredClone(BUILTIN_SKINS[0]!)
+    const target = {
+      anchor: { tagName: 'button', role: null, classNames: ['abc_action'] },
+      path: [{ childIndex: 0, tagName: 'span', role: null, classNames: ['abc_label'] }],
+      property: 'text' as const,
+      textNodeIndex: 0,
+    }
+    skin.copyOverrides['settings.title'] = { zh: '旧设置标题' }
+    skin.textOverrides = [{ id: 'text-save', name: 'Save action', sample: 'Save', target, replacements: { zh: '保存', en: 'Save now' } }]
+    const decoded = decodeSkinManifest(skin)
+    expect(decoded?.copyOverrides['settings.title']?.zh).toBe('旧设置标题')
+    expect(decoded?.textOverrides[0]?.replacements).toEqual({ zh: '保存', en: 'Save now' })
+
+    const duplicate = structuredClone(skin)
+    duplicate.textOverrides.push({ ...structuredClone(duplicate.textOverrides[0]!), id: 'text-save-again' })
+    expect(decodeSkinManifest(duplicate)).toBeUndefined()
+
+    const deep = structuredClone(skin)
+    deep.textOverrides[0]!.target.path = Array.from({ length: 7 }, (_, childIndex) => ({ childIndex, tagName: 'span', role: null, classNames: [] }))
+    expect(decodeSkinManifest(deep)).toBeUndefined()
+
+    const unsafe = structuredClone(skin) as unknown as { textOverrides: Array<{ replacements: unknown; target: unknown }> }
+    unsafe.textOverrides[0]!.replacements = { zh: '<script>\u0000</script>' }
+    expect(decodeSkinManifest(unsafe)).toBeUndefined()
+    unsafe.textOverrides[0]!.replacements = { zh: 'x' }
+    unsafe.textOverrides[0]!.target = { selector: 'body *', property: 'textContent' }
+    expect(decodeSkinManifest(unsafe)).toBeUndefined()
+
+    const tooMany = structuredClone(BUILTIN_SKINS[0]!)
+    tooMany.textOverrides = Array.from({ length: 129 }, (_, index) => ({
+      id: `text-${index}`, name: `Text ${index}`, sample: `Sample ${index}`,
+      target: { anchor: { tagName: 'span', role: null, classNames: [`text_${index}`] }, path: [], property: 'text' as const, textNodeIndex: 0 },
+      replacements: {},
+    }))
+    expect(decodeSkinManifest(tooMany)).toBeUndefined()
   })
 
   it('rejects unknown semantic slots, missing visual assets, and invalid copy', () => {
@@ -60,6 +106,8 @@ describe('skin manifest', () => {
     const tooLong = structuredClone(BUILTIN_SKINS[0]!)
     tooLong.copyOverrides['welcome.title'] = { zh: '长'.repeat(161) }
     expect(decodeSkinManifest(tooLong)).toBeUndefined()
+
+    expect(decodeSkinManifest({ ...BUILTIN_SKINS[0], sidebarBrandLayout: 'overlap' })).toBeUndefined()
   })
 
   it('rejects unsafe asset paths', () => {

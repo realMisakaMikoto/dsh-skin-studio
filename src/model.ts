@@ -4,15 +4,21 @@ import {
 } from './skin-slots.ts'
 
 export const SKIN_FORMAT = 'dsh-skin-studio' as const
-export const SKIN_FORMAT_VERSION = 4 as const
+export const SKIN_FORMAT_VERSION = 5 as const
 export const MAX_PACKAGE_BYTES = 128 * 1024 * 1024
 export const MAX_WALLPAPER_BYTES = 15 * 1024 * 1024
 export const MAX_VIDEO_BYTES = 100 * 1024 * 1024
 export const MAX_FONT_BYTES = 5 * 1024 * 1024
 export const MAX_VISUAL_ASSET_BYTES = 5 * 1024 * 1024
+export const MAX_TEXT_OVERRIDE_RULES = 128
+export const MAX_TEXT_OVERRIDE_PATH_DEPTH = 6
+export const MAX_TEXT_OVERRIDE_VALUE_LENGTH = 300
 
 export const MODES = ['light', 'dark'] as const
 export type SkinMode = (typeof MODES)[number]
+
+export const SIDEBAR_BRAND_LAYOUTS = ['split', 'single'] as const
+export type SidebarBrandLayout = (typeof SIDEBAR_BRAND_LAYOUTS)[number]
 
 export const PALETTE_ROLES = [
   'accent', 'background', 'surface', 'foreground', 'sidebar', 'code',
@@ -93,8 +99,31 @@ export type VisualAssetOverrides = Partial<Record<VisualAssetSlotId, string>>
 export type LocalizedCopyOverride = Partial<Record<SkinLocale, string>>
 export type CopyOverrides = Partial<Record<CopySlotId, LocalizedCopyOverride>>
 
+export interface TextTargetPathSegment extends ComponentTarget {
+  childIndex: number
+}
+
+export type TextOverrideTarget = {
+  anchor: ComponentTarget
+  path: TextTargetPathSegment[]
+  property: 'text'
+  textNodeIndex: number
+} | {
+  anchor: ComponentTarget
+  path: TextTargetPathSegment[]
+  property: 'placeholder'
+}
+
+export interface TextOverrideRule {
+  id: string
+  name: string
+  sample: string
+  target: TextOverrideTarget
+  replacements: LocalizedCopyOverride
+}
+
 /** Current public manifest stored as manifest.json inside a .dshskin ZIP container. */
-export interface SkinManifestV4 {
+export interface SkinManifestV5 {
   format: typeof SKIN_FORMAT
   formatVersion: typeof SKIN_FORMAT_VERSION
   id: string
@@ -106,18 +135,22 @@ export interface SkinManifestV4 {
   palettes: Record<SkinMode, SemanticPalette>
   overrides: AdvancedTokenOverrides
   appearance: SkinAppearance
+  sidebarBrandLayout: SidebarBrandLayout
   visualAssetOverrides: VisualAssetOverrides
   copyOverrides: CopyOverrides
+  textOverrides: TextOverrideRule[]
   assets: SkinAssetDescriptor[]
 }
 
-export type SkinManifest = SkinManifestV4
-/** @deprecated Import SkinManifest or SkinManifestV4 for the current schema. */
-export type SkinManifestV3 = SkinManifestV4
-/** @deprecated Import SkinManifest or SkinManifestV4 for the current schema. */
-export type SkinManifestV2 = SkinManifestV4
-/** @deprecated Import SkinManifest or SkinManifestV4 for the current schema. */
-export type SkinManifestV1 = SkinManifestV4
+export type SkinManifest = SkinManifestV5
+/** @deprecated Import SkinManifest or SkinManifestV5 for the current schema. */
+export type SkinManifestV4 = SkinManifestV5
+/** @deprecated Import SkinManifest or SkinManifestV5 for the current schema. */
+export type SkinManifestV3 = SkinManifestV5
+/** @deprecated Import SkinManifest or SkinManifestV5 for the current schema. */
+export type SkinManifestV2 = SkinManifestV5
+/** @deprecated Import SkinManifest or SkinManifestV5 for the current schema. */
+export type SkinManifestV1 = SkinManifestV5
 
 export interface StoredAsset {
   skinId: string
@@ -175,6 +208,8 @@ export function migrateSkinManifest(value: unknown): unknown {
       migrated.visualAssetOverrides = {}
       migrated.copyOverrides = {}
     }
+    if (migrated.sidebarBrandLayout === undefined) migrated.sidebarBrandLayout = 'split'
+    if (version < 5) migrated.textOverrides = []
     migrated.formatVersion = SKIN_FORMAT_VERSION
     return migrated
   }
@@ -224,6 +259,60 @@ function decodeComponentTarget(value: unknown): ComponentTarget | undefined {
   const classNames = value.classNames.filter(item => typeof item === 'string' && /^[a-z0-9_-]{1,96}$/i.test(item)) as string[]
   if (classNames.length !== value.classNames.length || new Set(classNames).size !== classNames.length) return undefined
   return { tagName: value.tagName, role: value.role, classNames }
+}
+
+function decodeTextTargetPathSegment(value: unknown): TextTargetPathSegment | undefined {
+  if (!isRecord(value) || !Number.isInteger(value.childIndex) || (value.childIndex as number) < 0 || (value.childIndex as number) > 255) return undefined
+  const target = decodeComponentTarget(value)
+  return target === undefined ? undefined : { ...target, childIndex: value.childIndex as number }
+}
+
+function decodeTextOverrideTarget(value: unknown): TextOverrideTarget | undefined {
+  if (!isRecord(value)) return undefined
+  const anchor = decodeComponentTarget(value.anchor)
+  const path = Array.isArray(value.path) ? value.path.map(decodeTextTargetPathSegment) : undefined
+  if (anchor === undefined || path === undefined || path.length > MAX_TEXT_OVERRIDE_PATH_DEPTH || path.some(segment => segment === undefined)) return undefined
+  const decodedPath = path as TextTargetPathSegment[]
+  if (value.property === 'text') {
+    if (!Number.isInteger(value.textNodeIndex) || (value.textNodeIndex as number) < 0 || (value.textNodeIndex as number) > 255) return undefined
+    return { anchor, path: decodedPath, property: 'text', textNodeIndex: value.textNodeIndex as number }
+  }
+  if (value.property === 'placeholder' && value.textNodeIndex === undefined) {
+    return { anchor, path: decodedPath, property: 'placeholder' }
+  }
+  return undefined
+}
+
+function decodeTextReplacements(value: unknown): LocalizedCopyOverride | undefined {
+  if (!isRecord(value) || Object.keys(value).some(locale => !SKIN_LOCALES.includes(locale as SkinLocale))) return undefined
+  const replacements: LocalizedCopyOverride = {}
+  for (const locale of SKIN_LOCALES) {
+    const input = value[locale]
+    if (input === undefined) continue
+    if (typeof input !== 'string' || /[\u0000-\u001f\u007f]/.test(input)) return undefined
+    const clean = input.trim()
+    if (clean === '' || clean.length > MAX_TEXT_OVERRIDE_VALUE_LENGTH) return undefined
+    replacements[locale] = clean
+  }
+  return replacements
+}
+
+export function textOverrideTargetKey(target: TextOverrideTarget): string {
+  const part = (value: ComponentTarget): string => `${value.tagName}|${value.role ?? ''}|${[...value.classNames].sort().join('.')}`
+  const path = target.path.map(segment => `${segment.childIndex}:${part(segment)}`).join('/')
+  return `${part(target.anchor)}>${path}#${target.property}:${target.property === 'text' ? target.textNodeIndex : ''}`
+}
+
+function decodeTextOverrideRule(value: unknown): TextOverrideRule | undefined {
+  if (!isRecord(value) || typeof value.id !== 'string' || !SAFE_ID.test(value.id)) return undefined
+  if (typeof value.name !== 'string' || /[\u0000-\u001f\u007f]/.test(value.name)) return undefined
+  if (typeof value.sample !== 'string' || /[\u0000-\u001f\u007f]/.test(value.sample)) return undefined
+  const name = value.name.trim()
+  const sample = value.sample.trim()
+  const target = decodeTextOverrideTarget(value.target)
+  const replacements = decodeTextReplacements(value.replacements)
+  if (name === '' || name.length > 80 || sample === '' || sample.length > MAX_TEXT_OVERRIDE_VALUE_LENGTH || target === undefined || replacements === undefined) return undefined
+  return { id: value.id, name, sample, target, replacements }
 }
 
 function decodeComponentMediaMode(value: unknown): ComponentMediaMode | undefined {
@@ -327,7 +416,7 @@ function decodeAsset(value: unknown): SkinAssetDescriptor | undefined {
   return { id: value.id, path: value.path, kind, mimeType, size: value.size, sha256: value.sha256 }
 }
 
-export function decodeSkinManifest(value: unknown): SkinManifestV4 | undefined {
+export function decodeSkinManifest(value: unknown): SkinManifestV5 | undefined {
   value = migrateSkinManifest(value)
   if (!isRecord(value) || value.formatVersion !== SKIN_FORMAT_VERSION) return undefined
   const id = typeof value.id === 'string' && SAFE_ID.test(value.id) ? value.id : undefined
@@ -340,12 +429,20 @@ export function decodeSkinManifest(value: unknown): SkinManifestV4 | undefined {
   } : undefined
   const overrides = decodeOverrides(value.overrides)
   const appearance = decodeAppearance(value.appearance)
+  const sidebarBrandLayout = SIDEBAR_BRAND_LAYOUTS.includes(value.sidebarBrandLayout as SidebarBrandLayout)
+    ? value.sidebarBrandLayout as SidebarBrandLayout
+    : undefined
   const visualAssetOverrides = decodeVisualAssetOverrides(value.visualAssetOverrides)
   const copyOverrides = decodeCopyOverrides(value.copyOverrides)
+  const textOverrides = Array.isArray(value.textOverrides) ? value.textOverrides.map(decodeTextOverrideRule) : undefined
   const assets = Array.isArray(value.assets) ? value.assets.map(decodeAsset) : undefined
   if (id === undefined || name === undefined || author === undefined || description === undefined) return undefined
   if (!ISO_DATE.test(String(value.createdAt)) || !ISO_DATE.test(String(value.updatedAt))) return undefined
-  if (palettes?.light === undefined || palettes.dark === undefined || overrides === undefined || appearance === undefined || visualAssetOverrides === undefined || copyOverrides === undefined) return undefined
+  if (palettes?.light === undefined || palettes.dark === undefined || overrides === undefined || appearance === undefined || sidebarBrandLayout === undefined || visualAssetOverrides === undefined || copyOverrides === undefined) return undefined
+  if (textOverrides === undefined || textOverrides.length > MAX_TEXT_OVERRIDE_RULES || textOverrides.some(rule => rule === undefined)) return undefined
+  const decodedTextOverrides = textOverrides as TextOverrideRule[]
+  if (new Set(decodedTextOverrides.map(rule => rule.id)).size !== decodedTextOverrides.length) return undefined
+  if (new Set(decodedTextOverrides.map(rule => textOverrideTargetKey(rule.target))).size !== decodedTextOverrides.length) return undefined
   if (assets === undefined || assets.some(asset => asset === undefined)) return undefined
   const decodedAssets = assets as SkinAssetDescriptor[]
   if (new Set(decodedAssets.map(asset => asset.id)).size !== decodedAssets.length) return undefined
@@ -371,8 +468,10 @@ export function decodeSkinManifest(value: unknown): SkinManifestV4 | undefined {
     palettes: { light: palettes.light, dark: palettes.dark },
     overrides,
     appearance,
+    sidebarBrandLayout,
     visualAssetOverrides,
     copyOverrides,
+    textOverrides: decodedTextOverrides,
     assets: decodedAssets,
   }
 }
@@ -387,6 +486,7 @@ export function cloneManifest(manifest: SkinManifestV1, name = `${manifest.name}
   const copy = structuredClone({ ...manifest, id: makeSkinId(), name, createdAt: now, updatedAt: now, assets: [] })
   copy.appearance.wallpaperAssetId = null
   copy.appearance.componentMedia = []
+  copy.sidebarBrandLayout = 'split'
   copy.visualAssetOverrides = {}
   if (copy.appearance.uiFont.kind === 'asset') copy.appearance.uiFont = { kind: 'system', assetId: null, family: 'sans-serif' }
   if (copy.appearance.codeFont.kind === 'asset') copy.appearance.codeFont = { kind: 'system', assetId: null, family: 'monospace' }

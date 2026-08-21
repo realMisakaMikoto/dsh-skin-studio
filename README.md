@@ -18,7 +18,7 @@
 要求 Node.js 20+ 与 DeepSeek Harness Web profile。
 
 ```sh
-dsh plugin --profile web add dsh-skin-studio@0.5.0 --save-exact
+dsh plugin --profile web add dsh-skin-studio@0.5.1 --save-exact
 dsh web
 ```
 
@@ -98,7 +98,7 @@ dsh web
 
 ## 13 位角色主题预览
 
-以下图片均来自当前 `0.5.0` 源码构建的 DSH 新会话页，使用浅色模式和 `1707 × 782` 完整视口。
+以下图片均来自当前 `0.5.1` 源码构建的 DSH 新会话页，使用浅色模式和 `1707 × 782` 完整视口。
 
 <table>
   <tr>
@@ -247,7 +247,7 @@ pnpm pack
 ## 相关链接
 
 - [npm package](https://www.npmjs.com/package/dsh-skin-studio)
-- [v0.5.0 Release](https://github.com/realMisakaMikoto/dsh-skin-studio/releases/tag/0.5.0)
+- [v0.5.1 Release](https://github.com/realMisakaMikoto/dsh-skin-studio/releases/tag/0.5.1)
 - [`.dshskin` v5 格式](docs/skin-format-v5.md)
 - [第三方素材说明](THIRD_PARTY_ASSETS.md)
 

@@ -1,46 +1,104 @@
 <h1 align="center">dsh-skin-studio</h1>
 
 <p align="center">
-  为 DeepSeek Harness Web UI 创建、预览、管理和分享完整皮肤。
+  DeepSeek Harness Web UI 的本地皮肤工作室：创建、实时预览、管理与分享完整外观。
 </p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/dsh-skin-studio"><img alt="npm version" src="https://img.shields.io/npm/v/dsh-skin-studio?color=cb4b8c"></a>
   <a href="https://github.com/realMisakaMikoto/dsh-skin-studio/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/realMisakaMikoto/dsh-skin-studio/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/realMisakaMikoto/dsh-skin-studio/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-2f855a.svg"></a>
+  <a href="https://github.com/realMisakaMikoto/dsh-skin-studio/blob/main/LICENSE"><img alt="AGPL-3.0 license" src="https://img.shields.io/badge/license-AGPL--3.0-2f855a.svg"></a>
   <img alt="DeepSeek Harness rc.8" src="https://img.shields.io/badge/DeepSeek%20Harness-0.1.0--rc.8-2563eb">
 </p>
 
-`dsh-skin-studio` 是面向 DeepSeek Harness Web profile 的本地皮肤工作室。每套皮肤可以同时携带浅色/深色配色、主背景、组件媒体、品牌与图标素材、双语文案、自由文本规则和字体，并通过 `.dshskin` 文件完整导入导出。
+`dsh-skin-studio` 运行在 DSH Web profile 的浏览器 Client 中。一套皮肤可以同时携带浅色/深色配色、主背景、组件媒体、品牌与图标、双语文案、自由文本规则和字体，并通过 `.dshskin` v5 完整导入导出。
 
-## 安装
+## 快速开始
 
-要求 Node.js 20 或更高版本，以及 DeepSeek Harness Web profile。
+要求 Node.js 20+ 与 DeepSeek Harness Web profile。
 
 ```sh
 dsh plugin --profile web add dsh-skin-studio@0.5.0 --save-exact
 dsh web
 ```
 
-打开 **设置 → 通用设置 → 自定义皮肤 → 打开皮肤工作室**。
+启动后进入：
 
-## 当前版本提供
+**设置 → 通用设置 → 自定义皮肤 → 打开皮肤工作室**
 
-- 17 套内置皮肤：`Bright Studio`、`High Contrast`、`Tidal Paper`，以及 14 套虹咲主题。
-- 完整保留 DSH 的浅色、深色和跟随系统外观模式。
-- 六组语义配色与完整 DSH Theme Token 编辑。
-- PNG、JPEG、WebP、MP4、WebM 主背景，支持透明度、界面覆盖、遮罩与模糊调节。
-- 可视化组件点选器，为输入框、侧边栏、按钮、选择器、菜单和其他组件分别设置图片或静音循环视频。
-- “选择目标 / 操作界面”双模式，可先展开菜单或临时界面，再选择实际组件。
-- 空状态标志、Hero 插图、侧边栏品牌图标、完整 Logo 和工作区文件夹图标替换。
-- 中英文固定文案与自由文本选择器，支持普通文字和 placeholder。
-- WOFF2 界面字体与代码字体。
-- IndexedDB 本地皮肤库、启动快照和同源标签页同步。
-- `.dshskin` v5 导入导出、版本迁移、资源签名与 SHA-256 完整性校验。
+## 工作室结构
 
-## 13 位角色皮肤
+| 页面 | 源码当前提供的能力 |
+| --- | --- |
+| **皮肤库** | 新建、复制、编辑、启用、删除、恢复 DSH 默认，以及进入单套皮肤包操作 |
+| **基础编辑** | 名称、作者、简介、浅色/深色六组语义色、主背景、界面字体与代码字体 |
+| **界面组件** | 常用 DSH Token、完整 Token 搜索、组件点选、组件图片/视频、透明度、遮罩与模糊 |
+| **素材替换** | 空状态标志、Hero 背景插图、侧边栏品牌图标、完整 Logo、工作区文件夹图标 |
+| **文案** | 中文/英文固定文案、自由文本选择器、普通文字和 placeholder |
+| **导入导出** | `.dshskin` 导入、导出，以及同 ID 时保留两份、替换现有皮肤或取消 |
 
-以下截图来自 `0.5.0` 的实际 DSH 新会话页，统一使用浅色模式和完整视口。
+## 皮肤能力
+
+### 配色与外观
+
+- 保留 DSH 的浅色、深色与跟随系统模式。
+- 六组基础语义色：强调色、页面背景、表面、正文、侧栏、代码背景。
+- 使用 OKLCH 生成另一模式，生成后仍可分别微调。
+- 常用组件视图与完整 DSH Theme Token 视图。
+- 应用前提供文字与强调色对比度检查。
+
+### 背景与组件媒体
+
+- 主背景支持 PNG、JPEG、WebP、MP4、WebM。
+- 每种模式分别保存背景透明度、界面遮盖强度与明暗遮罩。
+- 背景和组件媒体均支持模糊；视频自动静音循环。
+- 组件点选器会把同一结构类型的组件统一成组。
+- 最多保存 64 条组件媒体规则；运行时最多维护 200 个组件媒体层和 12 个视频层。
+- 组件媒体提供单独的可读性确认。
+
+### 点选器与键盘操作
+
+组件与文本点选器都提供两种模式：
+
+- **选择目标**：鼠标点选，或使用方向键、Tab、Enter、空格浏览与确认。
+- **操作界面**：正常点击、输入、展开菜单和临时界面，再按 `F2` 返回选择。
+- `Esc` 返回工作室，`F2` 在两种模式之间切换。
+
+### 五个视觉素材位置
+
+| Slot | 用途 | 推荐尺寸 |
+| --- | --- | --- |
+| `hero-whale-logo` | 新会话标题左侧标志 | 272 × 200 |
+| `hero-backdrop-illustration` | 新会话输入区后的 Hero 插图 | 2102 × 936 |
+| `sidebar-brand-mark` | 侧边栏品牌图标 | 96 × 71 |
+| `sidebar-brand-wordmark` | 侧边栏品牌字样或完整 Logo | 624 × 96 |
+| `workspace-folder-icon` | 侧边栏与欢迎页工作区图标 | 64 × 64 |
+
+侧边栏品牌支持“图标 + 字样”和“单图品牌”两种布局。单图品牌在展开状态使用完整 Logo，收起状态保留品牌图标。
+
+### 文案与字体
+
+- 固定文案覆盖欢迎标题、欢迎标记、欢迎输入提示、工作区提示和侧边栏新会话。
+- 每个固定位置分别保存中文与英文。
+- 自由文本规则记录显示名称、文字样本、结构化目标与双语替换值。
+- 最多保存 128 条自由文本规则；单条结构路径最多 6 层，单语言替换值最多 300 字。
+- 仅更新直接 Text 节点或 placeholder，组件内图标与子控件保持原结构。
+- 当可见文字与原 aria-label 一致时，同步维护无障碍名称。
+- 界面字体与代码字体均支持 WOFF2。
+
+## 17 套内置皮肤
+
+首次启动会向当前浏览器写入：
+
+- 3 套基础预设：`Bright Studio`、`High Contrast`、`Tidal Paper`。
+- 13 位角色主题：上原歩夢、高咲侑、中須かすみ、桜坂しずく、朝香果林、宮下愛、近江彼方、優木せつ菜、エマ・ヴェルデ、天王寺璃奈、三船栞子、ミア・テイラー、鐘嵐珠。
+- 1 套 **虹ヶ咲学園スクールアイドル同好会** 全团主题。
+
+内置主题包含背景、浅色/深色配色、角色化视觉素材、双语文案与八类组件背景。插件升级会刷新保持原始状态的内置版本，并保留用户编辑后的版本。
+
+## 13 位角色主题预览
+
+以下图片均来自当前 `0.5.0` 源码构建的 DSH 新会话页，使用浅色模式和 `1707 × 782` 完整视口。
 
 <table>
   <tr>
@@ -95,7 +153,7 @@ dsh web
     <td width="50%" valign="top">
       <strong>エマ・ヴェルデ</strong><br>
       <sub>连接山野与台场的清新绿色庭院。</sub><br><br>
-      <img src="docs/screenshots/skins/emma.webp" alt="艾玛·维尔德皮肤全屏截图">
+      <img src="docs/screenshots/skins/emma.webp" alt="エマ・ヴェルデ皮肤全屏截图">
     </td>
     <td width="50%" valign="top">
       <strong>天王寺璃奈</strong><br>
@@ -112,7 +170,7 @@ dsh web
     <td width="50%" valign="top">
       <strong>ミア・テイラー</strong><br>
       <sub>银色、冰青与深蓝交织的专业录音棚。</sub><br><br>
-      <img src="docs/screenshots/skins/mia.webp" alt="米娅·泰勒皮肤全屏截图">
+      <img src="docs/screenshots/skins/mia.webp" alt="ミア・テイラー皮肤全屏截图">
     </td>
   </tr>
   <tr>
@@ -124,62 +182,67 @@ dsh web
   </tr>
 </table>
 
-## 全团主题与基础预设
-
-虹咲主题还包含 **虹ヶ咲学園スクールアイドル同好会** 全团皮肤，把十三人的角色色、彩虹组件纹样、团体背景和专属文案组合成一套完整外观。
-
-基础预设提供三种不同方向：
-
-| 皮肤 | 风格 |
-| --- | --- |
-| `Bright Studio` | 明亮、中性、清晰的工作画布 |
-| `High Contrast` | 强调文字与控件区分度的高对比界面 |
-| `Tidal Paper` | 安静的青绿色编辑画布 |
-
-## 一套皮肤包含什么
-
-| 内容 | 能力 |
-| --- | --- |
-| 配色 | 浅色与深色语义色、完整 DSH Token 覆盖 |
-| 主背景 | 图片或静音循环视频、透明度、遮罩、模糊和界面覆盖 |
-| 组件背景 | 同类组件统一应用，各组件独立媒体与浅深模式参数 |
-| 视觉素材 | 标志、Hero、品牌图标、完整 Logo、文件夹图标 |
-| 文案 | 中英文固定文案、自由文本、placeholder |
-| 字体 | WOFF2 界面字体与代码字体 |
-| 分享 | 包含 manifest 和本地资源的 `.dshskin` v5 文件 |
-
-## 使用流程
-
-1. 在皮肤库中新建、复制或选择一套皮肤。
-2. 编辑浅色/深色配色、背景、组件、视觉素材、文案和字体。
-3. 使用实时预览检查主界面，再选择“应用并保存”。
-4. 在“导入导出”中生成 `.dshskin` 文件，或导入其他完整皮肤。
-
 ## `.dshskin` v5
 
-`.dshskin` 是带版本的 ZIP 容器，包含 `manifest.json` 与皮肤引用的本地资源。v5 使用结构化组件目标、受控文本路径、语义 Visual/Copy Slot、资源大小与 SHA-256 描述符，并自动迁移 v1–v4 皮肤。
+`.dshskin` 是带版本的 ZIP 容器，根目录包含 `manifest.json` 与 manifest 引用的本地资源。当前格式保存：
 
-完整格式说明见 [docs/skin-format-v5.md](docs/skin-format-v5.md)。
+- 皮肤身份、浅色/深色配色和 DSH Token 覆盖。
+- 主背景、组件媒体、视觉素材、界面字体与代码字体描述符。
+- 五个语义 Visual Slot、固定双语文案和自由文本规则。
+- 资源 MIME、字节大小、路径和 SHA-256。
+- `sidebarBrandLayout` 与结构化组件/文本目标。
+
+v1–v4 皮肤会在导入时迁移到 v5。完整 schema 与迁移说明见 [docs/skin-format-v5.md](docs/skin-format-v5.md)。
+
+### 资源上限
+
+| 项目 | 上限 |
+| --- | ---: |
+| 单个 `.dshskin` 包 | 128 MB |
+| 背景或组件图片 | 15 MB |
+| 背景或组件视频 | 100 MB |
+| 单个视觉替换素材 | 5 MB |
+| 单个 WOFF2 字体 | 5 MB |
+
+导入时会校验 manifest、资源路径、文件签名、声明大小和 SHA-256。
+
+## 数据与运行时
+
+- 完整皮肤与 Blob 资源保存在当前 origin 的 IndexedDB。
+- 当前启用皮肤的轻量快照保存在 localStorage，用于页面启动阶段恢复。
+- 同源标签页通过 BroadcastChannel 刷新皮肤库状态。
+- 启用、切换、取消预览和释放插件时会清理背景、组件层、字体、文字覆盖与 Blob URL。
+- React 重建节点后，MutationObserver 会重新应用组件媒体、视觉素材和文字规则。
+- 内置皮肤按稳定 ID 写入；升级时更新未编辑版本。
 
 ## 兼容性
 
-- DeepSeek Harness `0.1.0-rc.8`
-- Node.js 20+
-- React 18
-- Chrome、Edge 等现代桌面浏览器
-- rc.6 与 rc.8 的侧边栏品牌和 Hero 结构
+| 项目 | 当前基线 |
+| --- | --- |
+| DeepSeek Harness | `0.1.0-rc.8` |
+| Node.js | 20+ |
+| React | 18 |
+| 浏览器 | Chrome、Edge 等现代桌面浏览器 |
+| DSH 结构 | rc.6 / rc.8 侧边栏品牌与 Hero 结构 |
 
-皮肤保存在当前浏览器 origin 的 IndexedDB 中；同源标签页会同步当前皮肤状态。
-
-## 开发
+## 开发与验证
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm package:check
+```
+
+完整验证：
+
+```sh
 pnpm check
 pnpm pack
 ```
 
-`pnpm check` 依次执行类型检查、72 项测试、构建和 npm 包内容校验。
+`pnpm check` 会依次执行类型检查、Vitest、Client/Host 构建和 npm 包内容校验。
 
 ## 相关链接
 
@@ -188,6 +251,7 @@ pnpm pack
 - [`.dshskin` v5 格式](docs/skin-format-v5.md)
 - [第三方素材说明](THIRD_PARTY_ASSETS.md)
 
-## 许可证
+## 许可证与第三方素材
 
-项目代码采用 [MIT License](LICENSE)。内置主题使用的第三方角色、标志与媒体说明见 [THIRD_PARTY_ASSETS.md](THIRD_PARTY_ASSETS.md)。
+- 项目源代码采用 [GNU Affero General Public License v3.0](LICENSE)。
+- 内置主题使用的角色、标志与媒体归属说明见 [THIRD_PARTY_ASSETS.md](THIRD_PARTY_ASSETS.md)。

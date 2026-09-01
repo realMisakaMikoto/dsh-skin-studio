@@ -8,14 +8,23 @@
   <a href="https://www.npmjs.com/package/dsh-skin-studio"><img alt="npm version" src="https://img.shields.io/npm/v/dsh-skin-studio?color=cb4b8c"></a>
   <a href="https://github.com/realMisakaMikoto/dsh-skin-studio/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/realMisakaMikoto/dsh-skin-studio/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/realMisakaMikoto/dsh-skin-studio/blob/main/LICENSE"><img alt="AGPL-3.0 license" src="https://img.shields.io/badge/license-AGPL--3.0-2f855a.svg"></a>
-  <img alt="DeepSeek Harness rc.8" src="https://img.shields.io/badge/DeepSeek%20Harness-0.1.0--rc.8-2563eb">
+  <img alt="DeepSeek Harness alpha.3" src="https://img.shields.io/badge/DeepSeek%20Harness-0.1.2--alpha.3-2563eb">
 </p>
 
 `dsh-skin-studio` 运行在 DSH Web profile 的浏览器 Client 中。一套皮肤可以同时携带浅色/深色配色、主背景、组件媒体、品牌与图标、双语文案、自由文本规则和字体，并通过 `.dshskin` v5 完整导入导出。
 
 ## 快速开始
 
-要求 Node.js 20+ 与 DeepSeek Harness Web profile。
+要求 Node.js 20+ 与 DeepSeek Harness Web profile。请按 DSH 版本安装对应的插件版本：
+
+DSH `0.1.2-alpha.3` 安装 alpha 兼容线：
+
+```sh
+dsh plugin --profile web add dsh-skin-studio@alpha --save-exact
+dsh web
+```
+
+如需锁定版本，将 `@alpha` 换成 `@0.6.0-alpha.1`。DSH `0.1.0-rc.8` 继续安装稳定兼容线：
 
 ```sh
 dsh plugin --profile web add dsh-skin-studio@0.5.1 --save-exact
@@ -217,13 +226,17 @@ v1–v4 皮肤会在导入时迁移到 v5。完整 schema 与迁移说明见 [do
 
 ## 兼容性
 
-| 项目 | 当前基线 |
+| DeepSeek Harness | dsh-skin-studio | 安装方式 |
+| --- | --- | --- |
+| `0.1.0-rc.8` | `0.5.1` | `dsh-skin-studio@0.5.1` |
+| `0.1.2-alpha.3` | `0.6.0-alpha.1` | `dsh-skin-studio@alpha` 或精确版本 |
+
+| 项目 | 当前 alpha 基线 |
 | --- | --- |
-| DeepSeek Harness | `0.1.0-rc.8` |
 | Node.js | 20+ |
 | React | 18 |
 | 浏览器 | Chrome、Edge 等现代桌面浏览器 |
-| DSH 结构 | rc.6 / rc.8 侧边栏品牌与 Hero 结构 |
+| DSH 结构 | `0.1.2-alpha.3` Web UI |
 
 ## 开发与验证
 
@@ -247,6 +260,7 @@ pnpm pack
 ## 相关链接
 
 - [npm package](https://www.npmjs.com/package/dsh-skin-studio)
+- [v0.6.0-alpha.1 Pre-release](https://github.com/realMisakaMikoto/dsh-skin-studio/releases/tag/0.6.0-alpha.1)
 - [v0.5.1 Release](https://github.com/realMisakaMikoto/dsh-skin-studio/releases/tag/0.5.1)
 - [`.dshskin` v5 格式](docs/skin-format-v5.md)
 - [第三方素材说明](THIRD_PARTY_ASSETS.md)

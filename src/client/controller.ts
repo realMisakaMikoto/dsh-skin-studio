@@ -1,4 +1,4 @@
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -30,7 +30,7 @@ export interface SkinStudioController {
 }
 
 export function createController(
-  ctx: ClientContext,
+  ctx: Context,
   store: ReturnType<typeof createSkinStudioStore>,
 ): { controller: SkinStudioController; dispose: () => void } {
   const applier = new SkinApplier(ctx)
@@ -92,7 +92,7 @@ export function createController(
   window.addEventListener('storage', onStorage)
 
   ctx.on('theme/change', snapshot => { applier.setMode(snapshot.active.colorScheme) })
-  ctx.on('locale/change', snapshot => { applier.setLocale(snapshot.active) })
+  ctx.on('locale/change', snapshot => { applier.setLocale(snapshot.active === 'zh' ? 'zh' : 'en') })
 
   const inspectedTokenNames = ctx.theme.exportInspectTokens()
     .filter(token => token.valueType.toLowerCase().includes('color'))
@@ -204,7 +204,7 @@ export function createController(
       return await exportSkinPackage(skin, await loadAssets(id))
     },
     tokenNames,
-    activeLocale: () => ctx.locale.getLocale().active,
+    activeLocale: () => ctx.locale.getLocale().active === 'zh' ? 'zh' : 'en',
     connectActions: next => {
       actions = next
       publish()

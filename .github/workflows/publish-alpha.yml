@@ -1,0 +1,97 @@
+name: Publish alpha
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag matching package.json (for example, 0.6.0-alpha.1)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: publish-alpha-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.16.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          registry-url: https://registry.npmjs.org
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [[ "$RELEASE_TAG" != "$version" ]]; then
+            echo "Tag $RELEASE_TAG does not match package.json version $version." >&2
+            exit 1
+          fi
+          if ! git tag --points-at HEAD | grep -Fx -- "$RELEASE_TAG" >/dev/null; then
+            echo "Tag $RELEASE_TAG does not point at the checked-out commit." >&2
+            exit 1
+          fi
+
+      - name: Install current npm CLI
+        run: npm install --global npm@11.15.0
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+
+      - name: Pack release tarball
+        id: pack
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          pnpm pack --pack-destination artifacts
+          tarball="$(find artifacts -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          if [[ -z "$tarball" ]]; then
+            echo "pnpm pack did not produce a tarball." >&2
+            exit 1
+          fi
+          echo "path=$tarball" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to npm alpha tag
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if npm view "dsh-skin-studio@$version" version >/dev/null 2>&1; then
+            echo "dsh-skin-studio@$version already exists; skipping npm publish."
+          else
+            npm publish "${{ steps.pack.outputs.path }}" --tag alpha --provenance --access public
+          fi
+          npm view "dsh-skin-studio@$version" version
+
+      - name: Create or update GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tarball="${{ steps.pack.outputs.path }}"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" --prerelease
+            gh release upload "$RELEASE_TAG" "$tarball" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$tarball" \
+              --verify-tag \
+              --title "$RELEASE_TAG" \
+              --prerelease \
+              --generate-notes
+          fi

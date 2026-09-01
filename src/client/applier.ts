@@ -1,4 +1,4 @@
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ComponentMediaRule, SkinManifestV1, SkinMode, ThemeTokenModes } from '../model.ts'
@@ -105,9 +105,10 @@ export class SkinApplier {
   private motionQuery: MediaQueryList | undefined
   private reduceMotion = false
 
-  constructor(private readonly ctx: ClientContext) {
+  constructor(private readonly ctx: Context) {
     this.mode = ctx.theme.getTheme().active.colorScheme
-    this.locale = ctx.locale?.getLocale().active ?? 'zh'
+    const activeLocale = ctx.locale?.getLocale().active ?? 'zh'
+    this.locale = activeLocale === 'zh' ? 'zh' : 'en'
     if (typeof matchMedia !== 'undefined') {
       this.motionQuery = matchMedia('(prefers-reduced-motion: reduce)')
       this.reduceMotion = this.motionQuery.matches

@@ -21,7 +21,7 @@ const PACKAGE_ID = 'dsh-skin-studio'
 const CLIENT_EXTERNALS = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',
   '@deepseek-ai/cordis', '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-runtime/client', '@deepseek-ai/dsh-client-ui-primitives',
+  '@deepseek-ai/dsh-client-store', '@deepseek-ai/dsh-client-ui-primitives',
 ] as const
 const CSS_PREFIX = '\0dsh-skin-css:'
 const CSS_SUFFIX = '.mjs'

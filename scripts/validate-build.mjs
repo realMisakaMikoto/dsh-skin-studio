@@ -10,6 +10,15 @@ if (!/window\.__ModuleLoader__\.load\(\{\s*id:\s*["']dsh-skin-studio["']/.test(c
 if (!client.includes('data-plugin-css')) {
   throw new Error('Client bundle is missing its inlined CSS module.')
 }
+if (client.includes('dsh-client-runtime')) {
+  throw new Error('Client bundle still references the removed DSH client runtime.')
+}
+if (!/require\(["']@deepseek-ai\/dsh-client-store["']\)/.test(client)) {
+  throw new Error('Client bundle is missing the alpha.3 store external.')
+}
+if (/require\(["']@deepseek-ai\/cordis["']\)/.test(client)) {
+  throw new Error('Client bundle contains a runtime Cordis request for a type-only import.')
+}
 if (/require\(["'](?:module|worker_threads)["']\)/.test(client)) {
   throw new Error('Client bundle contains a forbidden Node runtime import.')
 }

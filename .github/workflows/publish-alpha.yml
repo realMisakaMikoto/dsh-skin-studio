@@ -52,6 +52,9 @@ jobs:
       - name: Install current npm CLI
         run: npm install --global npm@11.15.0
 
+      - name: Set provenance repository metadata
+        run: npm pkg set repository.type=git repository.url=https://github.com/realMisakaMikoto/dsh-skin-studio
+
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
 

@@ -80,7 +80,16 @@ jobs:
           else
             npm publish "./${{ steps.pack.outputs.path }}" --tag alpha --provenance --access public
           fi
-          npm view "dsh-skin-studio@$version" version
+          for attempt in 1 2 3 4 5 6; do
+            if npm view "dsh-skin-studio@$version" version; then
+              break
+            fi
+            if [[ "$attempt" == 6 ]]; then
+              echo "dsh-skin-studio@$version is still unavailable after publishing." >&2
+              exit 1
+            fi
+            sleep 5
+          done
 
       - name: Create or update GitHub pre-release
         env:

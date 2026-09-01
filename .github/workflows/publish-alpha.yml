@@ -75,7 +75,7 @@ jobs:
           if npm view "dsh-skin-studio@$version" version >/dev/null 2>&1; then
             echo "dsh-skin-studio@$version already exists; skipping npm publish."
           else
-            npm publish "${{ steps.pack.outputs.path }}" --tag alpha --provenance --access public
+            npm publish "./${{ steps.pack.outputs.path }}" --tag alpha --provenance --access public
           fi
           npm view "dsh-skin-studio@$version" version
 

@@ -8,19 +8,17 @@ DeepSeek Harness Web UI 的皮肤编辑器，作为 DSH Web profile 的浏览器
 
 ## 安装
 
-需要 Node.js 20+ 和 DeepSeek Harness Web profile。按 DSH 版本选插件版本。
-
-DSH `0.1.2-alpha.3` 装 alpha 线：
+需要 Node.js 20+ 和 DeepSeek Harness Web profile。
 
 ```sh
-dsh plugin --profile web add dsh-skin-studio@alpha --save-exact
+dsh plugin --profile web add dsh-skin-studio
 dsh web
 ```
 
-要锁版本就把 `@alpha` 换成 `@0.6.0-alpha.1`。DSH `0.1.0-rc.8` 装稳定线：
+插件保持向下兼容，装最新版即可。要锁版本：
 
 ```sh
-dsh plugin --profile web add dsh-skin-studio@0.5.1 --save-exact
+dsh plugin --profile web add dsh-skin-studio@0.6.0-alpha.1 --save-exact
 dsh web
 ```
 
@@ -93,14 +91,11 @@ dsh web
 
 完整皮肤和 Blob 资源存在当前 origin 的 IndexedDB，启用中的皮肤在 localStorage 存一份轻量快照供页面启动时恢复，同源标签页通过 BroadcastChannel 同步皮肤库状态。启用、切换、取消预览或卸载插件时会清理背景、组件层、字体、文字覆盖和 Blob URL。React 重建节点后，MutationObserver 会重新应用组件媒体、视觉素材和文字规则。
 
-## 兼容性
+## 环境要求
 
-| DeepSeek Harness | dsh-skin-studio | 安装 |
-| --- | --- | --- |
-| `0.1.0-rc.8` | `0.5.1` | `dsh-skin-studio@0.5.1` |
-| `0.1.2-alpha.3` | `0.6.0-alpha.1` | `dsh-skin-studio@alpha` 或精确版本 |
+当前版本基线：DeepSeek Harness `0.1.0-rc.8` 及以后（含 `0.1.2-alpha.3`、`0.1.6-alpha.1` 等）、Node.js 20+、React 18、桌面版 Chrome / Edge。
 
-当前 alpha 线基线：Node.js 20+、React 18、桌面版 Chrome / Edge。
+插件随 DSH 一起向后兼容，安装时直接装最新版即可，不需要按 DSH 版本挑选插件版本。
 
 ## 开发
 

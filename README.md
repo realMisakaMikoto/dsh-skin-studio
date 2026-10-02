@@ -5,6 +5,7 @@
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 
 DeepSeek Harness Web UI 的皮肤编辑器，作为 DSH Web profile 的浏览器 Client 插件运行。一套皮肤包含浅色/深色配色、主背景、组件媒体、品牌图标、双语界面文案、自由文本替换规则和字体，通过 `.dshskin` v5 文件导入导出。
+仅支持WebUI，不支持0.2.0及之后的桌面端。此项目已废弃。
 
 ## 安装
 

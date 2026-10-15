@@ -55,7 +55,22 @@ jobs:
           if-no-files-found: error
       - name: Publish stable package through npm trusted publishing
         shell: bash
-        run: npm publish "./artifacts/dsh-skin-studio-${RELEASE_TAG}.tgz" --tag latest --provenance --access public
+        run: |
+          if npm view "dsh-skin-studio@$RELEASE_TAG" version --prefer-online >/dev/null 2>&1; then
+            echo "Version already published; preserving the immutable npm artifact."
+          else
+            npm publish "./artifacts/dsh-skin-studio-${RELEASE_TAG}.tgz" --tag latest --provenance --access public
+          fi
       - name: Verify registry version
         shell: bash
-        run: test "$(npm view "dsh-skin-studio@$RELEASE_TAG" version)" = "$RELEASE_TAG"
+        run: |
+          for attempt in {1..30}; do
+            if test "$(npm view "dsh-skin-studio@$RELEASE_TAG" version --prefer-online 2>/dev/null)" = "$RELEASE_TAG"; then
+              npm view "dsh-skin-studio@$RELEASE_TAG" version dist.integrity dist.attestations --json --prefer-online
+              exit 0
+            fi
+            echo "Waiting for npm package processing ($attempt/30)."
+            sleep 10
+          done
+          echo "Registry processing did not finish within five minutes." >&2
+          exit 1

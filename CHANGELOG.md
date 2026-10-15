@@ -11,4 +11,4 @@ The repository now maintains the Windows desktop edition for DeepSeek Harness 0.
 - Windows installer using the desktop application's bundled pnpm, with profile backup and dry-run support.
 - Portable diagnostic paths, npm-based Windows/Linux CI and 101 automated checks.
 
-The desktop package is distributed through GitHub Releases. The historical npm package remains the WebUI edition. The installed package identifier and desktop storage namespace are preserved for existing desktop users.
+The desktop package is distributed through GitHub Releases and the original public npm name, `dsh-skin-studio@0.7.0`. The public npm artifact adapts the package identity from the immutable release source; the existing local checkout keeps its installed identifier and desktop storage namespace. Versions through `0.6.0-alpha.1` remain the WebUI edition.

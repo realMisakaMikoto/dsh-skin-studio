@@ -26,3 +26,4 @@ jobs:
       - run: npm run verify
       - run: npm run verify:client
       - run: npm pack --dry-run
+      - run: npm run release:pack

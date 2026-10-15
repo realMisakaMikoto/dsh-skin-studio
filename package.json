@@ -49,7 +49,8 @@
     "verify:client": "node scripts/verify-client-boot.mjs",
     "host:verify": "node scripts/verify-against-host.mjs",
     "host:routes": "node scripts/inspect-plugins-route.mjs",
-    "install:desktop": "node scripts/install-desktop.mjs"
+    "install:desktop": "node scripts/install-desktop.mjs",
+    "release:pack": "node scripts/pack-public-release.mjs"
   },
   "engines": {
     "node": ">=20"

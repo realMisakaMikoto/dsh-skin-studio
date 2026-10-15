@@ -1,0 +1,61 @@
+name: Publish desktop
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable release tag to publish to npm
+        required: true
+        default: '0.7.0'
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-desktop-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          path: release-source
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Validate immutable release source
+        working-directory: release-source
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          test "$RELEASE_TAG" = "$version"
+          git tag --points-at HEAD | grep -Fx -- "$RELEASE_TAG"
+      - run: npm ci
+        working-directory: release-source
+      - run: npm run verify
+        working-directory: release-source
+      - run: npm run verify:client
+        working-directory: release-source
+      - name: Prepare public package from verified release
+        run: npm run release:pack -- --source release-source --output artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ inputs.tag }}
+          path: artifacts/dsh-skin-studio-${{ inputs.tag }}.tgz
+          if-no-files-found: error
+      - name: Publish stable package through npm trusted publishing
+        shell: bash
+        run: npm publish "./artifacts/dsh-skin-studio-${RELEASE_TAG}.tgz" --tag latest --provenance --access public
+      - name: Verify registry version
+        shell: bash
+        run: test "$(npm view "dsh-skin-studio@$RELEASE_TAG" version)" = "$RELEASE_TAG"

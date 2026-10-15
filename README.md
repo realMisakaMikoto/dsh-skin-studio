@@ -23,7 +23,17 @@ node scripts/install-desktop.mjs --profile "D:/DSH/profile" --resources "D:/DSH/
 node scripts/install-desktop.mjs --profile "D:/DSH/profile" --resources "D:/DSH/resources"
 ```
 
-The global `dsh plugin --profile desktop add` command may reject desktop profiles because they are managed by Electron; use the included installer. GitHub release archives are the distribution channel for this desktop package. The old npm `dsh-skin-studio` package belongs to the historical WebUI line.
+The global `dsh plugin --profile desktop add` command may reject desktop profiles because they are managed by Electron; use the included installer.
+
+The desktop edition is also available as [`dsh-skin-studio@0.7.0` on npm](https://www.npmjs.com/package/dsh-skin-studio/v/0.7.0). To download it, run:
+
+```sh
+npm pack dsh-skin-studio@0.7.0
+tar -xzf dsh-skin-studio-0.7.0.tgz
+node package/scripts/install-desktop.mjs
+```
+
+Save your work and quit DSH before running the installer. Keep the extracted `package` folder. Existing desktop installations do not need a second installation: the GitHub and npm packages contain the same editor. Disable an earlier local skin studio entry before switching distribution channels. Versions through `0.6.0-alpha.1` remain the historical WebUI edition.
 
 ## Complete skin editing
 

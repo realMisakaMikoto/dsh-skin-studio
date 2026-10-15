@@ -48,6 +48,10 @@ jobs:
         working-directory: release-source
       - name: Prepare public package from verified release
         run: npm run release:pack -- --source release-source --output artifacts
+      - name: Record exact package integrity
+        shell: bash
+        run: |
+          node -e 'const fs=require("node:fs"),c=require("node:crypto");console.log("PACKAGE_INTEGRITY=sha512-"+c.createHash("sha512").update(fs.readFileSync("artifacts/dsh-skin-studio-"+process.env.RELEASE_TAG+".tgz")).digest("base64"))' >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@v4
         with:
           name: npm-${{ inputs.tag }}
@@ -57,6 +61,11 @@ jobs:
         shell: bash
         run: |
           if npm view "dsh-skin-studio@$RELEASE_TAG" version --prefer-online >/dev/null 2>&1; then
+            actual="$(npm view "dsh-skin-studio@$RELEASE_TAG" dist.integrity --prefer-online)"
+            if test "$actual" != "$PACKAGE_INTEGRITY"; then
+              echo "This npm version already contains a different artifact and cannot be overwritten." >&2
+              exit 1
+            fi
             echo "Version already published; preserving the immutable npm artifact."
           else
             npm publish "./artifacts/dsh-skin-studio-${RELEASE_TAG}.tgz" --tag latest --provenance --access public
@@ -66,6 +75,11 @@ jobs:
         run: |
           for attempt in {1..30}; do
             if test "$(npm view "dsh-skin-studio@$RELEASE_TAG" version --prefer-online 2>/dev/null)" = "$RELEASE_TAG"; then
+              actual="$(npm view "dsh-skin-studio@$RELEASE_TAG" dist.integrity --prefer-online)"
+              if test "$actual" != "$PACKAGE_INTEGRITY"; then
+                echo "The registry contains a different artifact for this version." >&2
+                exit 1
+              fi
               npm view "dsh-skin-studio@$RELEASE_TAG" version dist.integrity dist.attestations --json --prefer-online
               exit 0
             fi

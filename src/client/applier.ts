@@ -70,6 +70,7 @@ export class SkinApplier {
   private scrim: HTMLDivElement | undefined
   private mediaUrl: string | undefined
   private previousBodyIsolation: string | undefined
+  private viewportOverflow: Array<{ element: HTMLElement; properties: Array<[string, string, string]> }> = []
   private root: HTMLElement | undefined
   private previousRootPosition: string | undefined
   private previousRootZIndex: string | undefined
@@ -671,6 +672,14 @@ export class SkinApplier {
     this.layer.append(this.media, this.scrim)
     this.previousBodyIsolation = document.body.style.isolation
     document.body.style.isolation = 'isolate'
+    // The desktop shell scrolls inside its panels. Escaped decoration must not
+    // create a second scroller that can move the whole application off screen.
+    this.viewportOverflow = [document.documentElement, document.body].map(element => {
+      const properties = ['overflow', 'overflow-x', 'overflow-y'].map(name =>
+        [name, element.style.getPropertyValue(name), element.style.getPropertyPriority(name)] as [string, string, string])
+      element.style.overflow = 'clip'
+      return { element, properties }
+    })
     this.root = document.getElementById('root') ?? undefined
     if (this.root !== undefined) {
       this.previousRootPosition = this.root.style.position
@@ -1004,6 +1013,13 @@ export class SkinApplier {
     this.mediaUrl = undefined
     if (this.previousBodyIsolation !== undefined) document.body.style.isolation = this.previousBodyIsolation
     this.previousBodyIsolation = undefined
+    for (const { element, properties } of this.viewportOverflow) {
+      element.style.removeProperty('overflow')
+      for (const [name, value, priority] of properties) {
+        if (value !== '') element.style.setProperty(name, value, priority)
+      }
+    }
+    this.viewportOverflow = []
     if (this.root !== undefined) {
       if (this.previousRootPosition !== undefined) this.root.style.position = this.previousRootPosition
       if (this.previousRootZIndex !== undefined) this.root.style.zIndex = this.previousRootZIndex

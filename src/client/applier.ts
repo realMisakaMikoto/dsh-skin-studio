@@ -1,13 +1,11 @@
-import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
-import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type { DesktopContext } from './desktop-context.ts'
 import type { ComponentMediaRule, SkinManifestV1, SkinMode, ThemeTokenModes } from '../model.ts'
 import { COPY_SLOT_IDS, VISUAL_ASSET_SLOT_IDS, type CopySlotId, type SkinLocale, type VisualAssetSlotId } from '../skin-slots.ts'
 import { buildThemeTokenOverrides } from '../tokens.ts'
 import { defaultCopyValue, findCopySlotTargets, findVisualSlotTargets, type CopyTargetProperty } from './semantic-slots.ts'
-import { findTextOverrideTargets, type ResolvedTextTarget } from './text-targets.ts'
+import { findTextOverrideTargets, matchesComponentTarget, type ResolvedTextTarget } from './text-targets.ts'
 
-const SOURCE = 'dsh-skin-studio'
+const SOURCE = '@local/dsh-desktop-skin-studio'
 const SYSTEM_UI = '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif'
 const SYSTEM_CODE = '"SFMono-Regular", Consolas, "Liberation Mono", monospace'
 const MAX_COMPONENT_LAYERS = 200
@@ -104,8 +102,9 @@ export class SkinApplier {
   private locale: SkinLocale
   private motionQuery: MediaQueryList | undefined
   private reduceMotion = false
+  private disposed = false
 
-  constructor(private readonly ctx: Context) {
+  constructor(private readonly ctx: DesktopContext) {
     this.mode = ctx.theme.getTheme().active.colorScheme
     const activeLocale = ctx.locale?.getLocale().active ?? 'zh'
     this.locale = activeLocale === 'zh' ? 'zh' : 'en'
@@ -168,6 +167,7 @@ export class SkinApplier {
   }
 
   async apply(skin: SkinManifestV1 | null, assets: ReadonlyMap<string, Blob> = new Map()): Promise<void> {
+    if (this.disposed) return
     const revision = ++this.revision
     this.current = skin
     this.assets = new Map(assets)
@@ -178,12 +178,12 @@ export class SkinApplier {
       return
     }
     const tokens = buildThemeTokenOverrides(skin)
-    await this.loadFonts(skin, tokens)
+    await this.loadFonts(skin, tokens, new Map(assets), revision)
     if (revision !== this.revision) return
     const nextRelease = this.ctx.theme.overrideTokens(SOURCE, tokens)
     this.releaseOverride()
     this.releaseOverride = nextRelease
-    await this.loadBackdrop(skin)
+    this.loadBackdrop(skin)
     this.loadComponentMedia(skin)
     this.loadSemanticOverrides(skin)
   }
@@ -208,7 +208,7 @@ export class SkinApplier {
         attributes: true,
         attributeFilter: [
           'aria-label', 'aria-labelledby', 'aria-controls', 'aria-expanded', 'aria-selected',
-          'class', 'contenteditable', 'data-chat-flow-kind', 'data-testid', 'href', 'id', 'placeholder', 'role', 'title',
+          'class', 'contenteditable', 'data-chat-flow-kind', 'data-testid', 'data-placeholder', 'href', 'id', 'placeholder', 'role', 'title',
         ],
       })
     }
@@ -335,13 +335,17 @@ export class SkinApplier {
   }
 
   private readCopyTarget(state: Pick<CopySlotTargetState, 'element' | 'property'>): string {
-    if (state.property === 'text') return state.element.textContent ?? ''
+    if (state.property === 'text') return [...state.element.childNodes]
+      .filter((node): node is Text => node instanceof Text).map(node => node.data).join('')
     return state.element.getAttribute(state.property) ?? ''
   }
 
   private writeCopyTarget(state: Pick<CopySlotTargetState, 'element' | 'property'>, value: string): void {
     if (state.property === 'text') {
-      if (state.element.textContent !== value) state.element.textContent = value
+      const texts = [...state.element.childNodes].filter((node): node is Text => node instanceof Text)
+      const text = texts.find(node => node.data.trim() !== '') ?? texts[0]
+      if (text !== undefined) { if (text.data !== value) text.data = value }
+      else state.element.append(document.createTextNode(value))
       return
     }
     if (state.element.getAttribute(state.property) !== value) state.element.setAttribute(state.property, value)
@@ -367,6 +371,9 @@ export class SkinApplier {
       this.visualSlotTargets.set(slotId, states)
       for (const [target, state] of states) {
         if (!target.isConnected || !targetSet.has(target)) {
+          this.removeVisualSlotTarget(state)
+          states.delete(target)
+        } else if (!state.replacement.isConnected || state.replacement.parentElement !== target.parentElement) {
           this.removeVisualSlotTarget(state)
           states.delete(target)
         } else this.syncVisualSlotSize(state)
@@ -562,7 +569,7 @@ export class SkinApplier {
   }
 
   private scheduleSemanticRefresh = (): void => {
-    if (this.semanticFrame !== undefined) cancelAnimationFrame(this.semanticFrame)
+    if (this.disposed || this.semanticFrame !== undefined) return
     this.semanticFrame = requestAnimationFrame(() => {
       this.semanticFrame = undefined
       this.refreshSemanticOverrides()
@@ -599,16 +606,20 @@ export class SkinApplier {
     this.semanticAssetUrls.clear()
   }
 
-  private async loadFonts(skin: SkinManifestV1, tokens: Record<string, ThemeTokenModes>): Promise<void> {
+  private async loadFonts(skin: SkinManifestV1, tokens: Record<string, ThemeTokenModes>, assets: ReadonlyMap<string, Blob>, revision: number): Promise<void> {
     for (const [slot, reference] of [['ui', skin.appearance.uiFont], ['code', skin.appearance.codeFont]] as const) {
       let family = reference.family || (slot === 'ui' ? SYSTEM_UI : SYSTEM_CODE)
       if (reference.kind === 'asset' && reference.assetId !== null) {
-        const blob = this.assets.get(reference.assetId)
+        const blob = assets.get(reference.assetId)
         if (blob !== undefined) {
           const url = URL.createObjectURL(blob)
           try {
             const face = new FontFace(`DshSkin-${skin.id}-${slot}`, `url(${JSON.stringify(url)})`)
             await face.load()
+            if (revision !== this.revision || this.disposed) {
+              URL.revokeObjectURL(url)
+              return
+            }
             document.fonts.add(face)
             this.faces.push(face)
             this.fontUrls.push(url)
@@ -795,9 +806,7 @@ export class SkinApplier {
   }
 
   private componentMatches(element: HTMLElement, rule: ComponentMediaRule): boolean {
-    if (element.tagName.toLowerCase() !== rule.target.tagName) return false
-    if (rule.target.role !== null && element.getAttribute('role') !== rule.target.role) return false
-    return rule.target.classNames.every(name => element.classList.contains(name))
+    return matchesComponentTarget(element, rule.target)
   }
 
   private findComponentTargets(rule: ComponentMediaRule): HTMLElement[] {
@@ -948,7 +957,7 @@ export class SkinApplier {
   }
 
   private scheduleComponentRefresh = (): void => {
-    if (this.componentFrame !== undefined) cancelAnimationFrame(this.componentFrame)
+    if (this.disposed || this.componentFrame !== undefined) return
     this.componentFrame = requestAnimationFrame(() => {
       this.componentFrame = undefined
       this.refreshComponentMedia()
@@ -1009,7 +1018,11 @@ export class SkinApplier {
   }
 
   dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
     ++this.revision
+    this.current = null
+    this.assets.clear()
     this.clearVisualAssets()
     this.motionQuery?.removeEventListener('change', this.onMotionPreferenceChange)
     this.motionQuery = undefined

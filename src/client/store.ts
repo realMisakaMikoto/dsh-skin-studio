@@ -1,4 +1,4 @@
-import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
+import { useSyncExternalStore } from 'react'
 import type { SkinManifestV1 } from '../model.ts'
 
 export interface SkinStudioState {
@@ -7,23 +7,48 @@ export interface SkinStudioState {
   ready: boolean
   persistent: boolean
   revision: number
+  open: boolean
+  openRevision: number
 }
 
-type Actions = {
-  sync: (draft: SkinStudioState, state: Omit<SkinStudioState, 'revision'>) => void
+export interface SkinStudioActions {
+  sync: (state: Pick<SkinStudioState, 'skins' | 'activeId' | 'ready' | 'persistent'>) => void
+  open: () => void
+  close: () => void
 }
 
-export function createSkinStudioStore(): EngineStoreHandle<SkinStudioState, Actions> {
-  return defineStore({
-    init: () => ({ skins: [], activeId: null, ready: false, persistent: true, revision: 0 }),
-    actions: {
-      sync: (draft, state) => {
-        draft.skins = state.skins
-        draft.activeId = state.activeId
-        draft.ready = state.ready
-        draft.persistent = state.persistent
-        draft.revision += 1
-      },
+export interface SkinStudioStore {
+  getSnapshot: () => SkinStudioState
+  subscribe: (listener: () => void) => () => void
+  useStore: <T>(select: (state: SkinStudioState) => T) => T
+  actions: SkinStudioActions
+}
+
+export function createSkinStudioStore(): SkinStudioStore {
+  let snapshot: SkinStudioState = {
+    skins: [], activeId: null, ready: false, persistent: true,
+    revision: 0, open: false, openRevision: 0,
+  }
+  const listeners = new Set<() => void>()
+  const getSnapshot = (): SkinStudioState => snapshot
+  const subscribe = (listener: () => void): (() => void) => {
+    listeners.add(listener)
+    return () => { listeners.delete(listener) }
+  }
+  const update = (state: Partial<SkinStudioState>): void => {
+    snapshot = { ...snapshot, ...state, revision: snapshot.revision + 1 }
+    for (const listener of listeners) listener()
+  }
+  return {
+    getSnapshot, subscribe,
+    useStore: <T,>(select: (state: SkinStudioState) => T): T => {
+      const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+      return select(state)
     },
-  })
+    actions: {
+      sync: state => { update(state) },
+      open: () => { update({ open: true, openRevision: snapshot.openRevision + 1 }) },
+      close: () => { if (snapshot.open) update({ open: false }) },
+    },
+  }
 }

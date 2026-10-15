@@ -3,6 +3,7 @@ import {
   type ComponentTarget, type TextOverrideTarget, type TextTargetPathSegment,
 } from '../model.ts'
 import { createComponentTarget, findPickableComponent } from './component-picker.ts'
+import { isFolderSvg } from './semantic-slots.ts'
 
 const PLUGIN_UI = '[data-dsh-skin-studio-ui]'
 const INTERACTIVE = 'button, a, [role="button"], [role="menuitem"], [role="tab"], [role="treeitem"]'
@@ -55,10 +56,7 @@ function isSettingsDialog(element: HTMLElement): boolean {
 function isWorkspaceName(element: HTMLElement): boolean {
   const button = element.closest<HTMLButtonElement>('button[aria-haspopup="menu"]')
   if (button === null) return false
-  const folder = [...button.querySelectorAll('svg[viewBox="0 0 16 16"] path')].some(path =>
-    path.getAttribute('d')?.startsWith('M5.19629 1.57104') === true
-    || path.getAttribute('d')?.startsWith('M5.05582 0.518756') === true
-    || path.getAttribute('transform') === 'translate(1.5 2.429)')
+  const folder = [...button.querySelectorAll<SVGElement>('svg[viewBox="0 0 16 16"]')].some(isFolderSvg)
   if (!folder) return false
   const fixedMarker = button.getAttribute('data-dsh-skin-studio-copy-slot') === 'workspace.choose'
     || button.querySelector('[data-dsh-skin-studio-copy-slot="workspace.choose"]') !== null
@@ -79,11 +77,45 @@ export function textExclusionReason(element: HTMLElement): TextExclusionReason |
   return null
 }
 
-function matchesComponentTarget(element: Element, target: ComponentTarget): element is HTMLElement {
+// Upstream builtins were authored against the web build. The desktop build
+// uses different CSS module hashes, including several unrelated "root" and
+// "trigger" components, so these known seats need an explicit mapping.
+const DESKTOP_CLASS_ALIASES: Readonly<Record<string, string>> = {
+  pXSMma_previewBadge: 'Hqq-bq_previewBadge',
+  pXSMma_workspace: 'Hqq-bq_workspace',
+  cubgiG_seat: '_oGoKq_seat',
+  Sh0Q9G_trigger: '_2WTFBq_trigger',
+  _7KE1Ra_trigger: 'wq12jW_trigger',
+  uV2eYG_primary: 'RlGAzG_primary',
+  uV2eYG_card: 'RlGAzG_card',
+  'hHd-Xa_root': '_2H3hWW_root',
+  qDHVXG_sectionLabel: '_9lTDKa_sectionLabel',
+  qDHVXG_wide: '_9lTDKa_wide',
+}
+
+function matchesClass(element: HTMLElement, name: string): boolean {
+  if (element.classList.contains(name)) return true
+  const alias = DESKTOP_CLASS_ALIASES[name]
+  if (alias !== undefined) return element.classList.contains(alias)
+  // Legacy desktop rules sometimes stored only the module's local class.
+  return !/^_?[a-z0-9-]{6}_/i.test(name)
+    && [...element.classList].some(value => value.replace(/^_?[a-z0-9-]{6}_/i, '') === name)
+}
+
+export function matchesComponentTarget(element: Element, target: ComponentTarget): element is HTMLElement {
   return element instanceof HTMLElement
     && element.tagName.toLowerCase() === target.tagName
     && (target.role === null || element.getAttribute('role') === target.role)
-    && target.classNames.every(className => element.classList.contains(className))
+    && target.classNames.every(className => matchesClass(element, className))
+}
+
+function hostNodes(element: Element): ChildNode[] {
+  return [...element.childNodes].filter(node => !(node instanceof Element)
+    || !node.matches('[data-dsh-skin-studio-component-layer], [data-dsh-skin-studio-visual-slot]'))
+}
+
+function hostChildren(element: Element): Element[] {
+  return hostNodes(element).filter((node): node is Element => node instanceof Element)
 }
 
 function pathFrom(anchor: HTMLElement, endpoint: HTMLElement): TextTargetPathSegment[] | undefined {
@@ -97,7 +129,7 @@ function pathFrom(anchor: HTMLElement, endpoint: HTMLElement): TextTargetPathSeg
   const path: TextTargetPathSegment[] = []
   let parent = anchor
   for (const element of elements) {
-    const childIndex = [...parent.children].indexOf(element)
+    const childIndex = hostChildren(parent).indexOf(element)
     if (childIndex < 0 || childIndex > 255) return undefined
     path.push({ ...createComponentTarget(element), childIndex })
     parent = element
@@ -117,7 +149,7 @@ function createTarget(element: HTMLElement, property: 'text' | 'placeholder', te
   }
   const base = { anchor: createComponentTarget(anchor), path }
   if (property === 'placeholder') return { ...base, property }
-  const textNodeIndex = [...element.childNodes].indexOf(textNode!)
+  const textNodeIndex = hostNodes(element).indexOf(textNode!)
   if (textNodeIndex < 0 || textNodeIndex > 255) return undefined
   return { ...base, property, textNodeIndex }
 }
@@ -211,7 +243,7 @@ export function findTextOverrideTargets(target: TextOverrideTarget, root: Parent
     let endpoint: HTMLElement = candidate
     let valid = true
     for (const segment of target.path) {
-      const child = endpoint.children[segment.childIndex]
+      const child = hostChildren(endpoint)[segment.childIndex]
       if (child === undefined || !matchesComponentTarget(child, segment)) { valid = false; break }
       endpoint = child
     }
@@ -222,7 +254,7 @@ export function findTextOverrideTargets(target: TextOverrideTarget, root: Parent
       }
       continue
     }
-    const node = endpoint.childNodes[target.textNodeIndex]
+    const node = hostNodes(endpoint)[target.textNodeIndex]
     if (node instanceof Text && endpoint.closest('[contenteditable]:not([contenteditable="false"])') === null) {
       resolved.push({ element: endpoint, property: 'text', textNode: node })
     }

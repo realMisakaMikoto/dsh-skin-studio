@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from './desktop-controls.tsx'
 import { MAX_TEXT_OVERRIDE_RULES, MAX_TEXT_OVERRIDE_VALUE_LENGTH, type SidebarBrandLayout, type SkinManifestV1 } from '../model.ts'
 import {
   EDITABLE_COPY_SLOTS, SKIN_LOCALES, VISUAL_ASSET_SLOTS,

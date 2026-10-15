@@ -1,17 +1,21 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { useState } from 'react'
 import { createBlankSkin } from '../src/presets.ts'
 import { en, type SkinStudioKey } from '../src/client/locales.ts'
-import { SkinStudioRow, type SkinStudioRowProps } from '../src/client/SkinStudioRow.tsx'
+import { SkinStudioRow as DesktopSkinStudioRow, SkinStudioOverlay, type SkinStudioRowProps } from '../src/client/SkinStudioRow.tsx'
 import type { SkinStudioController } from '../src/client/controller.ts'
+import { createSkinStudioStore } from '../src/client/store.ts'
 
-vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
-  Button: ({ children, variant: _variant, size: _size, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; size?: string }) => <button type="button" {...props}>{children}</button>,
-  DisclosureRow: ({ title, collapsedContent }: { title: string; collapsedContent?: ReactNode }) => <div><span>{title}</span>{collapsedContent}</div>,
-  IconPersonalizationOutline16: () => <span />,
-  Modal: ({ open, title, closeLabel, onClose, children, footer }: { open: boolean; title: string; closeLabel: string; onClose: () => void; children?: ReactNode; footer?: ReactNode }) => open ? <div role="dialog" aria-label={title}><button type="button" aria-label={closeLabel} onClick={onClose}>×</button>{children}{footer}</div> : null,
-}))
+function SkinStudioRow(props: SkinStudioRowProps) {
+  const [store] = useState(() => {
+    const next = createSkinStudioStore()
+    next.actions.sync(props.useStore(state => state))
+    return next
+  })
+  const desktopProps = { ...props, store, useStore: store.useStore }
+  return <><DesktopSkinStudioRow {...desktopProps} /><SkinStudioOverlay {...desktopProps} /></>
+}
 
 function controller(): SkinStudioController {
   return {
@@ -23,7 +27,7 @@ function controller(): SkinStudioController {
       '--dsw-alias-bg-base', '--dsw-specific-input-major', '--dsw-alias-button-primary-fill',
       '--dsw-specific-sidebar-fill', '--dsw-specific-bubble', '--dsw-alias-border-l2',
       '--dsw-alias-state-success-primary',
-    ], activeLocale: () => 'en', connectActions: vi.fn(),
+    ], activeLocale: () => 'en', initializationError: () => null, connectActions: vi.fn(),
   }
 }
 

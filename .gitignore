@@ -1,9 +1,17 @@
+.verify-host.log
+.inspect-host.log
 node_modules/
-lib/
-coverage/
-*.tgz
-.DS_Store
-Thumbs.db
-.playwright-cli/
+*.log
+# Backups the desktop plugin manager leaves in the profile, mirrored here when
+# its recovery path runs against this checkout.
+*.bak-*
+package.json.bak*
+
 output/
-/无关/
+.impeccable/review/
+.test-out.txt
+.env
+.env.*
+!.env.example
+*.tgz
+.impeccable/

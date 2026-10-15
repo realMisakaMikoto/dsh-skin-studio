@@ -1,4 +1,9 @@
-# Register dsh-skin-studio in the Web client roster.
+# dsh-desktop-skin-studio bundle entry.
+#
+# One row is enough: the Host half only exists so DSH can mount the Client
+# bundle, and the browser half owns all rendering and skin application. The row
+# carries no `config` because the Host half exports no `Config` schema —
+# Cordis would otherwise validate against a missing schema and fail the row.
 - insert:
-    - id: skin-studio
-      name: 'dsh-skin-studio'
+    - id: dsh-desktop-skin-studio
+      name: '@local/dsh-desktop-skin-studio'

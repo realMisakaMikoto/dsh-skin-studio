@@ -76,7 +76,7 @@ describe('.dshskin packages', () => {
     const file = new Blob([zipSync({
       'manifest.json': strToU8(JSON.stringify(skin)),
       'assets/run.js': strToU8('alert(1)'),
-    })])
+    }).slice().buffer])
     await expect(importSkinPackage(file)).rejects.toMatchObject({ code: 'invalid-asset' })
   })
 
@@ -90,17 +90,17 @@ describe('.dshskin packages', () => {
     const tampered = new Blob([zipSync({
       'manifest.json': strToU8(JSON.stringify(skin)),
       [descriptor.path]: png,
-    })])
+    }).slice().buffer])
     await expect(importSkinPackage(tampered)).rejects.toMatchObject({ code: 'hash-mismatch' })
 
     const unknownToken = createBlankSkin('Unknown token')
     unknownToken.overrides['--dsw-alias-not-from-runtime'] = { light: '#112233', dark: '#ddeeff' }
-    const tokenPackage = new Blob([zipSync({ 'manifest.json': strToU8(JSON.stringify(unknownToken)) })])
+    const tokenPackage = new Blob([zipSync({ 'manifest.json': strToU8(JSON.stringify(unknownToken)) }).slice().buffer])
     await expect(importSkinPackage(tokenPackage, { allowedTokenNames: new Set(['--dsw-alias-bg-base']) }))
       .rejects.toMatchObject({ code: 'invalid-manifest' })
   })
 
   it('rejects malformed ZIP data', async () => {
-    await expect(importSkinPackage(new Blob([strToU8('not a zip')]))).rejects.toMatchObject({ code: 'invalid-zip' })
+    await expect(importSkinPackage(new Blob([strToU8('not a zip').slice().buffer]))).rejects.toMatchObject({ code: 'invalid-zip' })
   })
 })

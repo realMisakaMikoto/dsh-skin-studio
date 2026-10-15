@@ -3,7 +3,7 @@ import {
   type CopySlotId, type SkinLocale, type VisualAssetSlotId,
 } from '../skin-slots.ts'
 
-export type CopyTargetProperty = 'text' | 'placeholder' | 'aria-label'
+export type CopyTargetProperty = 'text' | 'placeholder' | 'aria-label' | 'data-placeholder'
 export interface CopySlotTarget {
   element: HTMLElement
   property: CopyTargetProperty
@@ -11,6 +11,9 @@ export interface CopySlotTarget {
 
 export function defaultCopyValue(id: CopySlotId, locale: SkinLocale, property: CopyTargetProperty): string {
   if (id === 'sidebar.new-session' && property === 'aria-label') return locale === 'zh' ? '新建会话' : 'New session'
+  if (id === 'composer.welcome-placeholder' && property !== 'placeholder') {
+    return locale === 'zh' ? '\u63cf\u8ff0\u4f60\u60f3\u8981\u6784\u5efa\u7684\u5185\u5bb9, / \u8c03\u7528\u6307\u4ee4, @ \u6587\u4ef6\u6216\u5bf9\u8bdd' : 'Describe what you want to build, / commands, @ files or sessions'
+  }
   return COPY_SLOTS.find(slot => slot.id === id)!.original[locale]
 }
 
@@ -36,18 +39,20 @@ function heroFishTargets(root: ParentNode): SVGElement[] {
 function heroHeadlineChild(root: ParentNode, slotId: 'welcome.title' | 'welcome.badge'): HTMLElement | undefined {
   const fish = heroFishTargets(root)[0]
   for (let ancestor = fish?.parentElement; ancestor !== null && ancestor !== undefined; ancestor = ancestor.parentElement) {
-    const child = [...ancestor.children].find(candidate => candidate instanceof HTMLElement
+    const child = [...ancestor.querySelectorAll('span')].find(candidate => candidate instanceof HTMLElement
       && (isOriginalCopy(candidate.textContent, slotId) || candidate.getAttribute(COPY_MARKER) === slotId))
     if (child instanceof HTMLElement) return child
   }
   return undefined
 }
 
-function isFolderSvg(svg: SVGElement): boolean {
+export function isFolderSvg(svg: SVGElement): boolean {
   if (svg.getAttribute('viewBox') !== '0 0 16 16') return false
   const paths = [...svg.querySelectorAll('path')]
   return paths.some(path => path.getAttribute('d')?.startsWith('M5.19629 1.57104') === true
     || path.getAttribute('d')?.startsWith('M5.05582 0.518756') === true
+    || path.getAttribute('d')?.startsWith('M1.50439 3.11059') === true
+    || path.getAttribute('d')?.startsWith('M2.55912 7.93683') === true
     || path.getAttribute('transform') === 'translate(1.5 2.429)')
 }
 
@@ -68,7 +73,7 @@ export function findVisualSlotTargets(id: VisualAssetSlotId, root: ParentNode = 
 }
 
 function directTextChild(button: HTMLElement, slotId: CopySlotId): HTMLElement | undefined {
-  return [...button.children].find(child => child instanceof HTMLElement
+  return [...button.querySelectorAll<HTMLElement>('span, div')].reverse().find(child => child instanceof HTMLElement
     && (isOriginalCopy(child.textContent, slotId) || child.getAttribute(COPY_MARKER) === slotId)) as HTMLElement | undefined
 }
 
@@ -86,7 +91,18 @@ export function findCopySlotTargets(id: CopySlotId, root: ParentNode = document)
       if (heroFishTargets(root).length === 0) return []
       const target = elements<HTMLTextAreaElement>(root, 'textarea').find(element =>
         isOriginalCopy(element.placeholder, id) || element.getAttribute(COPY_MARKER) === id)
-      return target === undefined ? [] : [{ element: target, property: 'placeholder' }]
+      if (target !== undefined) return [{ element: target, property: 'placeholder' }]
+      const original = COPY_SLOTS.find(slot => slot.id === id)!.original
+      const matches = (element: HTMLElement, value: string | null): boolean => element.getAttribute(COPY_MARKER) === id
+        || Object.values(original).some(text => value === text || value?.startsWith(text + ',') === true)
+      const placeholders = elements<HTMLElement>(root, '[data-composer-placeholder]')
+        .filter(element => matches(element, element.textContent))
+      const editables = elements<HTMLElement>(root, '[contenteditable][data-placeholder]')
+        .filter(element => matches(element, element.getAttribute('data-placeholder')))
+      return [
+        ...placeholders.map(element => ({ element, property: 'text' as const })),
+        ...editables.map(element => ({ element, property: 'data-placeholder' as const })),
+      ]
     }
     case 'workspace.choose': {
       const button = elements<HTMLButtonElement>(root, 'button[aria-haspopup="menu"]').find(element =>

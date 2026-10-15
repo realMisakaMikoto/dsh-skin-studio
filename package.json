@@ -1,111 +1,91 @@
 {
-  "name": "dsh-skin-studio",
-  "version": "0.6.0-alpha.1",
-  "description": "Create, manage, and share portable DeepSeek Harness skins.",
-  "keywords": [
-    "deepseek-harness",
-    "dsh",
-    "dsh-plugin",
-    "theme",
-    "skin"
-  ],
+  "name": "@local/dsh-desktop-skin-studio",
+  "version": "0.7.0",
+  "private": true,
+  "description": "Desktop-adapted skin studio for DeepSeek Harness: full-interface palettes, wallpaper, per-component media, visual assets, copy and free-text overrides, with .dshskin v5 import/export.",
   "license": "AGPL-3.0-only",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/realMisakaMikoto/dsh-skin-studio"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
   "type": "module",
-  "packageManager": "pnpm@10.16.1",
-  "engines": {
-    "node": ">=20"
-  },
-  "main": "lib/index.js",
-  "types": "lib/index.d.ts",
   "exports": {
-    ".": {
-      "types": "./lib/index.d.ts",
-      "default": "./lib/index.js"
-    },
-    "./client": {
-      "types": "./lib/client.d.ts",
-      "default": "./lib/client.js"
-    },
+    ".": "./index.js",
+    "./client": "./client.js",
     "./package.json": "./package.json"
   },
   "files": [
-    "lib",
+    "index.js",
+    "client.js",
     "cordis.patch.yml",
     "README.md",
     "README.zh.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
     "THIRD_PARTY_ASSETS.md",
-    "docs/screenshots",
-    "docs/skin-format-v4.md",
-    "docs/skin-format-v5.md",
-    "LICENSE"
+    "docs",
+    "src",
+    "types",
+    "tsdown.config.ts",
+    "tsconfig.json",
+    "scripts",
+    "LICENSE.local-MIT",
+    "tests",
+    "install-desktop.cmd"
   ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "platform": "web",
-      "inject": [
-        "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-ui-theme",
-        "@deepseek-ai/dsh-client-ui-primitives",
-        "@deepseek-ai/dsh-client-ui-renderer"
-      ]
+      "platform": "web"
     }
   },
   "scripts": {
-    "build": "tsdown --config tsdown.config.ts && node scripts/validate-build.mjs",
-    "package:check": "node scripts/validate-package.mjs",
+    "build": "tsdown --config tsdown.config.ts",
     "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run build && node --check client.js && node scripts/validate-package.mjs",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "check": "pnpm typecheck && pnpm test && pnpm build && pnpm package:check",
-    "prepack": "pnpm check",
-    "prepublishOnly": "pnpm check"
+    "verify": "npm run check && npm test",
+    "asar": "node scripts/extract-asar.mjs",
+    "drift": "node scripts/check-against-dsh.mjs",
+    "check:install": "node scripts/check-install.mjs",
+    "verify:client": "node scripts/verify-client-boot.mjs",
+    "host:verify": "node scripts/verify-against-host.mjs",
+    "host:routes": "node scripts/inspect-plugins-route.mjs",
+    "install:desktop": "node scripts/install-desktop.mjs"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
-    "fflate": "^0.8.2"
-  },
-  "peerDependencies": {
-    "react": "^18.2.0"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    }
+    "fflate": "0.8.3"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
-    "@deepseek-ai/dsh-client-locale": "0.1.2-alpha.3",
-    "@deepseek-ai/dsh-client-store": "0.1.2-alpha.3",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.1.2-alpha.3",
-    "@deepseek-ai/dsh-client-ui-renderer": "0.1.2-alpha.3",
-    "@deepseek-ai/dsh-client-ui-settings": "0.1.2-alpha.3",
-    "@deepseek-ai/dsh-client-ui-slots": "0.1.2-alpha.3",
-    "@deepseek-ai/dsh-client-ui-theme": "0.1.2-alpha.3",
     "@testing-library/jest-dom": "6.9.1",
-    "@testing-library/react": "^16.3.0",
-    "@types/node": "^22.15.0",
-    "@types/react": "^18.3.20",
-    "@types/react-dom": "^18.3.6",
-    "@vitest/coverage-v8": "^4.0.0",
-    "fake-indexeddb": "^6.2.2",
-    "jsdom": "^27.0.0",
-    "lightningcss": "^1.29.2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tsdown": "^0.22.14",
-    "typescript": "^5.9.2",
-    "unrun": "0.2.39",
-    "vitest": "^4.0.0"
-  }
+    "@testing-library/react": "16.3.0",
+    "@types/node": "22.15.0",
+    "@types/react": "18.3.20",
+    "@types/react-dom": "18.3.6",
+    "fake-indexeddb": "6.2.2",
+    "jsdom": "27.0.0",
+    "lightningcss": "1.29.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tsdown": "0.22.14",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/realMisakaMikoto/dsh-skin-studio.git"
+  },
+  "homepage": "https://github.com/realMisakaMikoto/dsh-skin-studio#readme",
+  "bugs": {
+    "url": "https://github.com/realMisakaMikoto/dsh-skin-studio/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "desktop",
+    "skin",
+    "theme",
+    "nijigasaki"
+  ]
 }

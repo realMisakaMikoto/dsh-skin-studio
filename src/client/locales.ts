@@ -1,10 +1,13 @@
-export const NS = 'dsh.skinStudio'
+export const NS = 'dsh.desktopSkinStudio'
 
 export const zh = {
+  'contrast.review': '\u68c0\u67e5\u914d\u8272',
+  'status.migrationWarning': '\u65e7\u7248\u76ae\u80a4\u8fc1\u79fb\u5931\u8d25\uff1b\u539f\u59cb\u6570\u636e\u5df2\u4fdd\u7559\u3002',
+  'status.snapshotWarning': '\u65e7\u7248\u542f\u7528\u72b6\u6001\u65e0\u6cd5\u6062\u590d\u3002',
   'row.title': '自定义皮肤', 'row.open': '打开皮肤工作室', 'row.none': '未启用皮肤',
   'modal.title': '皮肤工作室', 'modal.description': '创建、预览并分享完整的 DSH 外观。', 'modal.close': '关闭',
   'tab.library': '皮肤库', 'tab.basic': '基础编辑', 'tab.advanced': '界面组件', 'tab.assets': '素材替换', 'tab.copy': '文案', 'tab.package': '导入导出',
-  'status.local': '仅保存在此浏览器', 'status.volatile': '无法持久化；更改只在当前会话有效',
+  'status.local': '保存在当前 DSH 桌面配置中', 'status.volatile': '无法持久化；更改只在当前会话有效',
   'library.empty': '还没有皮肤。新建一套开始设计。', 'library.new': '新建皮肤', 'library.duplicate': '复制',
   'library.edit': '编辑', 'library.activate': '启用', 'library.active': '正在使用', 'library.delete': '删除',
   'library.package': '皮肤包',
@@ -86,10 +89,13 @@ export const zh = {
 
 export type SkinStudioKey = keyof typeof zh
 export const en: Record<SkinStudioKey, string> = {
+  'contrast.review': 'Review colors',
+  'status.migrationWarning': 'Some older skins could not be migrated. Their original data is preserved.',
+  'status.snapshotWarning': 'The previous active skin could not be restored.',
   'row.title': 'Custom skins', 'row.open': 'Open Skin Studio', 'row.none': 'No skin active',
   'modal.title': 'Skin Studio', 'modal.description': 'Create, preview, and share a complete DSH appearance.', 'modal.close': 'Close',
   'tab.library': 'Library', 'tab.basic': 'Basic editor', 'tab.advanced': 'GUI components', 'tab.assets': 'Visual assets', 'tab.copy': 'Copy', 'tab.package': 'Import & export',
-  'status.local': 'Stored in this browser only', 'status.volatile': 'Persistence is unavailable; changes last for this session only',
+  'status.local': 'Stored in this DSH desktop profile', 'status.volatile': 'Persistence is unavailable; changes last for this session only',
   'library.empty': 'No skins yet. Create one to start designing.', 'library.new': 'New skin', 'library.duplicate': 'Duplicate',
   'library.edit': 'Edit', 'library.activate': 'Activate', 'library.active': 'Active', 'library.delete': 'Delete',
   'library.package': 'Package',

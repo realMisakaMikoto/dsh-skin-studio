@@ -1,4 +1,4 @@
-# Product
+# DSH Desktop Skin Studio
 
 <!-- impeccable:product-schema 1 -->
 
@@ -6,53 +6,30 @@
 
 web
 
-## Stack
-
-TypeScript, React, CSS Modules, pnpm, tsdown, and Vitest, packaged as a DeepSeek Harness Web plugin.
-
 ## Users
 
-DeepSeek Harness users who want to create and switch distinctive interface skins without editing source code. The primary workflow happens inside DSH Settings and must remain approachable to non-technical users.
+Windows DeepSeek Harness desktop users who want to edit, preview, save, and share complete skins without editing configuration files.
 
 ## Product Purpose
 
-dsh-skin-studio lets people create, save, preview, activate, import, and export multiple DSH skins. A skin carries light and dark colors, a main image or looping video background, media backgrounds assigned to visible component types, UI/code fonts, semantic replacements for selected built-in DSH visuals, and localized interface-copy overrides in a portable package.
-
-## Positioning
-
-Unlike single-setting theme panels, the product treats skins as reusable library items and exports the complete visual result, including local assets, as a safe `.dshskin` package that can be edited again.
+Adapt the complete dsh-skin-studio 0.6.0-alpha.1 workflow to DSH desktop 0.2.0-rc.2. Success requires usable editing, reliable application and cancellation, and restoration after restart.
 
 ## Operating Context
 
-The plugin is installed into the DSH `web` profile and appears under Settings -> General. Native light, dark, and system appearance preferences continue to control the active palette mode.
+The editor opens from Settings > General > Custom skins. It runs inside the existing desktop renderer, with a six-tab modal matching the reference project. The user explicitly selected direct implementation and real desktop verification.
 
 ## Capabilities and Constraints
 
-- Basic semantic color editing plus guided controls for inputs, buttons, sidebars, messages, code, borders, and status colors.
-- An all-token view for runtime-exposed colors and the plugin's verified DSH component-color allowlist.
-- Automatic light/dark counterpart generation with independent editing afterward.
-- Browser-local IndexedDB persistence and same-origin tab synchronization.
-- PNG, JPEG, WebP, MP4, or WebM background media and WOFF2 font assets only.
-- A visual picker for assigning independent image or muted looping video backgrounds to any visible DSH component type.
-- A versioned Visual Asset Slot catalog for safe PNG/JPEG/WebP replacement of stable DSH brand, hero, and workspace visuals.
-- A bilingual Copy Slot catalog for selected stable DSH labels and placeholders, rendered only as plain text.
-- No arbitrary CSS, HTML, JavaScript, selectors in the manifest, Host-side sync, online marketplace, layout editing, or global radius editing in v4.
+Seventeen bundled presets, light/dark palettes, color tokens, wallpaper, component media, fonts, five visual slots, bilingual copy, structured text targets, and portable .dshskin v5 packages. Preserve existing desktop profile identity and user data. Runtime modules are React baseline imports only. Storage belongs to the desktop plugin namespace.
 
 ## Brand Commitments
 
-The public project and package name is `dsh-skin-studio`. UI copy is available in Chinese and English. The plugin inherits DSH's interface tokens and interaction language.
+Preserve the upstream editor's visual structure and interaction vocabulary. Character skin media remains attributed to its original rights holders.
 
 ## Evidence on Hand
 
-No original imagery, logo, or customer claims are available. The plugin must not invent endorsements or usage metrics.
+Pinned upstream a10dc1b57f2d7b00636eb0ac96536d01128a9e56, installed DSH runtime mirror, actual Electron window, preserved legacy package, and migration/interaction tests.
 
 ## Product Principles
 
-- Preserve DSH behavior while changing its appearance.
-- Make safe choices easy without taking creative control away.
-- Treat every exported skin as portable, inspectable data.
-- Always make preview, persistence, and recovery states explicit.
-
-## Accessibility & Inclusion
-
-Keyboard operation, visible focus, localized controls, and WCAG contrast reporting are required. Low-contrast skins may be applied only after an explicit warning.
+Complete the original workflow. Keep preview reversible. Preserve existing data. Report compatibility failures visibly. Verify user-visible behavior in the installed desktop app.

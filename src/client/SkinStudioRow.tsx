@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import React, { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
 import {
   Button, DisclosureRow, IconPersonalizationOutline16, Modal,
-} from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+} from './desktop-controls.tsx'
 import { generateCounterpart, inspectContrast } from '../color.ts'
 import { GUI_TOKEN_GROUPS, suggestTokenModes, type GuiTokenSpec } from '../gui-tokens.ts'
 import { describeAsset, SkinPackageError } from '../package-format.ts'
+import { getMigrationReport } from '../storage.ts'
 import {
   MAX_TEXT_OVERRIDE_RULES, PALETTE_ROLES, makeSkinId, textOverrideTargetKey,
   type AssetKind, type ComponentMediaRule, type PaletteRole, type SkinManifestV1, type SkinMode, type TextOverrideRule,
@@ -21,14 +21,15 @@ import {
 } from './text-targets.ts'
 import type { SkinStudioKey } from './locales.ts'
 import type { ConflictPolicy, SkinStudioController } from './controller.ts'
-import type { createSkinStudioStore } from './store.ts'
+import type { SkinStudioStore } from './store.ts'
 import css from './studio.module.css'
 
-export interface SkinStudioInjected { controller: SkinStudioController }
-export type SkinStudioRowProps = PropsRuntime<'settings.general.item'>
-  & PropsStore<ReturnType<typeof createSkinStudioStore>>
-  & PropsLocale<'dsh.skinStudio'>
-  & SkinStudioInjected
+export interface SkinStudioRowProps {
+  t: (key: SkinStudioKey) => string
+  useStore: SkinStudioStore['useStore']
+  controller: SkinStudioController
+  store: SkinStudioStore
+}
 
 type Tab = 'library' | 'basic' | 'advanced' | 'assets' | 'copy' | 'package'
 type AdvancedView = 'guided' | 'all'
@@ -86,11 +87,28 @@ function Slider({ label, value, min, max, step, suffix, onChange }: {
   )
 }
 
-export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
+export function SkinStudioRow({ t, useStore, store }: SkinStudioRowProps) {
   const skins = useStore(state => state.skins)
   const activeId = useStore(state => state.activeId)
   const ready = useStore(state => state.ready)
   const persistent = useStore(state => state.persistent)
+  const active = skins.find(skin => skin.id === activeId) ?? null
+  return <div className={css.rowRoot} data-dsh-skin-studio-ui="">
+    <DisclosureRow icon={<IconPersonalizationOutline16 />} title={t('row.title')} collapsedContent={
+      <div className={css.rowSummary}>
+        <span>{active?.name ?? t('row.none')}</span>
+        <Button size="sm" variant="outline" disabled={!ready && persistent} onClick={store.actions.open}>{t('row.open')}</Button>
+      </div>
+    } />
+  </div>
+}
+
+export function SkinStudioOverlay({ t, useStore, controller, store }: SkinStudioRowProps) {
+  const skins = useStore(state => state.skins)
+  const activeId = useStore(state => state.activeId)
+  const persistent = useStore(state => state.persistent)
+  const openRevision = useStore(state => state.openRevision)
+  const migration = getMigrationReport()
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('library')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -125,10 +143,11 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
   const studioRef = useRef<HTMLDivElement | null>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
   const discardReturnFocusRef = useRef<HTMLElement | null>(null)
+  const contrastConfirmRef = useRef<HTMLInputElement | null>(null)
+  const editRevisionRef = useRef(0)
   const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({ library: null, basic: null, advanced: null, assets: null, copy: null, package: null })
 
   const selected = skins.find(skin => skin.id === selectedId) ?? null
-  const active = skins.find(skin => skin.id === activeId) ?? null
   const wallpaperAsset = draft?.assets.find(asset => asset.id === draft.appearance.wallpaperAssetId)
   const issues = draft === null ? [] : inspectContrast(draft.palettes, draft.overrides)
   const hasContrastIssues = issues.length > 0
@@ -139,27 +158,31 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
   const friendlyTokens = useMemo(() => new Map(GUI_TOKEN_GROUPS.flatMap(group => group.tokens.map(token => [token.name, token] as const))), [])
 
   const beginEdit = async (skin: SkinManifestV1, nextTab: Tab = 'basic'): Promise<void> => {
+    if (saving) return
+    const revision = ++editRevisionRef.current
     setSelectedId(skin.id)
     setDraft(copySkin(skin))
+    setAssets(new Map())
     setTab(nextTab)
-    setAssets(await controller.assets(skin.id))
     setContrastConfirmed(false)
     setMediaReadabilityConfirmed(false)
     setEditingTokens(new Set(Object.keys(skin.overrides)))
     setDirty(false)
     setSaveStatus('idle')
     setAssetError(null)
+    const loaded = await controller.assets(skin.id)
+    if (editRevisionRef.current === revision) setAssets(loaded)
   }
 
   useEffect(() => {
-    if (!open || draft === null) return
+    if (!open || draft === null || saving) return
     if (hasContrastIssues) {
       void controller.cancelPreview()
       return
     }
     const timer = window.setTimeout(() => { void controller.preview(draft, assets) }, 60)
     return () => { window.clearTimeout(timer) }
-  }, [assets, controller, draft, hasContrastIssues, open])
+  }, [assets, controller, draft, hasContrastIssues, open, saving])
 
   useEffect(() => {
     if (!open) return
@@ -171,7 +194,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
       const dialog = studioRef.current?.closest<HTMLElement>('[role="dialog"]')
       if (dialog === null || dialog === undefined) return
       const focusable = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
-        .filter(element => element.getAttribute('aria-hidden') !== 'true' && element.tabIndex >= 0)
+        .filter(element => element.getAttribute('aria-hidden') !== 'true' && element.tabIndex >= 0 && !element.matches(':disabled'))
       if (focusable.length === 0) return
       const first = focusable[0]!
       const last = focusable.at(-1)!
@@ -180,7 +203,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
     }
     document.addEventListener('keydown', trapFocus)
-    return () => { dialog?.removeAttribute('data-dsh-skin-studio-ui'); window.cancelAnimationFrame(focusTimer); document.removeEventListener('keydown', trapFocus) }
+    return () => { window.cancelAnimationFrame(focusTimer); document.removeEventListener('keydown', trapFocus) }
   }, [open, tab])
 
   useEffect(() => {
@@ -357,6 +380,8 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
     const root = document.body
     const hiddenOverlays: Array<{ element: HTMLElement; visibility: string }> = []
     for (const dialog of document.querySelectorAll<HTMLElement>('[role="dialog"]')) {
+      if (dialog.closest('[data-dsh-skin-studio-ui]') !== null) continue
+      if (dialog instanceof HTMLDialogElement && !dialog.open) continue
       let overlay: HTMLElement | null = dialog
       while (overlay.parentElement !== null) {
         const rect = overlay.getBoundingClientRect()
@@ -532,9 +557,12 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
   }, [discardPending])
 
   const closeNow = (): void => {
+    if (saving) return
+    ++editRevisionRef.current
     setPickingComponent(false)
     setPickingText(false)
     setOpen(false)
+    store.actions.close()
     setDraft(null)
     setEditingTokens(new Set())
     setDirty(false)
@@ -547,6 +575,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
     window.setTimeout(() => { returnFocusRef.current?.focus() }, 0)
   }
   const requestClose = (): void => {
+    if (saving) return
     if (dirty) {
       discardReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
       setDiscardPending(true)
@@ -559,6 +588,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
     window.requestAnimationFrame(() => { discardReturnFocusRef.current?.focus() })
   }
   const openStudio = (): void => {
+    if (saving) return
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setSelectedId(activeId ?? skins[0]?.id ?? null)
     setTab('library')
@@ -566,7 +596,12 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
     setSaveStatus('idle')
     setOpen(true)
   }
+  useEffect(() => {
+    if (openRevision > 0) openStudio()
+  }, [openRevision])
   const discardDraft = (): void => {
+    if (saving) return
+    ++editRevisionRef.current
     setDraft(null)
     setEditingTokens(new Set())
     setDirty(false)
@@ -577,6 +612,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
     void controller.cancelPreview()
   }
   const updateDraft = (mutate: (next: SkinManifestV1) => void): void => {
+    if (saving) return
     setDirty(true)
     setSaveStatus('idle')
     setContrastConfirmed(false)
@@ -734,7 +770,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
   }
 
   const applyDraft = async (): Promise<void> => {
-    if (draft === null || (issues.length > 0 && !contrastConfirmed) || (hasMediaReadabilityRisk && !mediaReadabilityConfirmed)) return
+    if (saving || draft === null || (issues.length > 0 && !contrastConfirmed) || (hasMediaReadabilityRisk && !mediaReadabilityConfirmed)) return
     setSaving(true)
     setSaveStatus('idle')
     try {
@@ -807,6 +843,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
   }
 
   const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>): void => {
+    if (saving) return
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
     const enabledTabs: Tab[] = draft === null ? ['library', 'package'] : ['library', 'basic', 'advanced', 'assets', 'copy', 'package']
@@ -823,9 +860,15 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
   const contrastWarning = draft !== null && issues.length > 0 ? <div className={css.warningPanel} role="alert"><strong>{t('contrast.title')}</strong><p>{t('contrast.description')}</p><span className={css.previewLabel}>{t('contrast.preview')}</span><div className={css.contrastPreview}>{(['light', 'dark'] as const).map(item => {
     const palette = draft.palettes[item]
     return <div key={item} style={{ background: draft.overrides['--dsw-alias-bg-base']?.[item] ?? palette.background, color: draft.overrides['--dsw-alias-label-primary']?.[item] ?? palette.foreground }}><span>{t(`basic.mode.${item}`)}</span><strong>Aa</strong><i style={{ background: draft.overrides['--dsw-alias-brand-primary']?.[item] ?? palette.accent }} /></div>
-  })}</div><label><input type="checkbox" checked={contrastConfirmed} onChange={event => { setContrastConfirmed(event.target.checked) }} />{t('contrast.confirm')}</label></div> : null
+  })}</div><label><input ref={contrastConfirmRef} type="checkbox" checked={contrastConfirmed} onChange={event => { setContrastConfirmed(event.target.checked) }} />{t('contrast.confirm')}</label></div> : null
 
   const footer = draft === null || !(['basic', 'advanced', 'assets', 'copy'] as Tab[]).includes(tab) ? undefined : (
+    <fieldset disabled={saving} className={css.footerLayout}>
+      {hasMediaReadabilityRisk && <div className={css.footerWarning} role="alert"><p><strong>{t('componentMedia.readabilityTitle')}</strong> {t('componentMedia.readabilityDescription')}</p><label><input type="checkbox" checked={mediaReadabilityConfirmed} onChange={event => { setMediaReadabilityConfirmed(event.target.checked) }} />{t('componentMedia.readabilityConfirm')}</label></div>}
+      {hasContrastIssues && !contrastConfirmed && (tab === 'assets' || tab === 'copy') && <div className={css.footerReview} role="alert"><strong>{t('contrast.title')}</strong><Button size="sm" variant="outline" onClick={() => {
+        setTab('basic')
+        window.requestAnimationFrame(() => { window.requestAnimationFrame(() => { contrastConfirmRef.current?.scrollIntoView?.({ block: 'center' }); contrastConfirmRef.current?.focus() }) })
+      }}>{t('contrast.review')}</Button></div>}
     <div className={css.footerArea}>
       {saveStatus === 'success' && <span className={css.success} role="status">{t('action.saved')}</span>}
       {saveStatus === 'error' && <span className={css.error} role="alert">{t('action.saveError')}</span>}
@@ -836,39 +879,30 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
       </Button>
       </div>
     </div>
+    </fieldset>
   )
 
   return (
-    <div className={css.rowRoot} data-dsh-skin-studio-ui="">
-      <DisclosureRow
-        icon={<IconPersonalizationOutline16 />}
-        title={t('row.title')}
-        open={false}
-        expandable={false}
-        onToggle={() => {}}
-        collapsedContent={(
-          <div className={css.rowSummary}>
-            <span>{active?.name ?? t('row.none')}</span>
-            <Button size="sm" variant="outline" disabled={!ready && persistent} onClick={openStudio}>{t('row.open')}</Button>
-          </div>
-        )}
-      />
       <Modal
         open={open}
         onClose={requestClose}
         title={t('modal.title')}
         description={t('modal.description')}
         closeLabel={t('modal.close')}
+        closeDisabled={saving}
         className={css.modal!}
         contentClassName={css.modalContent!}
         footer={footer}
       >
         <div ref={studioRef} className={css.studio} data-dsh-skin-studio-ui="">
+        <fieldset disabled={saving} className={css.editorFieldset}>
         {discardPending && <div className={css.discardPanel} role="alert"><div><strong>{t('discard.title')}</strong><p>{t('discard.description')}</p></div><div className={css.discardActions}><Button variant="outline" onClick={keepEditing}>{t('discard.keep')}</Button><Button variant="primary" onClick={closeNow}>{t('discard.confirm')}</Button></div></div>}
         <div className={css.status} role="status" data-warning={!persistent || undefined}>{persistent ? t('status.local') : t('status.volatile')}</div>
+        {migration.skipped.length > 0 && <details className={css.status} data-warning=""><summary>{t('status.migrationWarning')}</summary><ul>{migration.skipped.map(item => <li key={item.id}>{item.id}: {item.message}</li>)}</ul></details>}
+        {migration.snapshotWarning !== null && <div className={css.status} role="status" data-warning="">{t('status.snapshotWarning')} {migration.snapshotWarning}</div>}
         <div className={css.tabs} role="tablist" aria-label={t('modal.title')}>
           {(['library', 'basic', 'advanced', 'assets', 'copy', 'package'] as const).map(item => (
-            <button key={item} ref={node => { tabRefs.current[item] = node }} id={`skin-studio-tab-${item}`} type="button" role="tab" aria-selected={tab === item} aria-controls={`skin-studio-panel-${item}`} tabIndex={tab === item ? 0 : -1} disabled={draft === null && item !== 'library' && item !== 'package'} className={css.tab} onClick={() => { setTab(item) }} onKeyDown={onTabKeyDown}>
+            <button key={item} ref={node => { tabRefs.current[item] = node }} id={`skin-studio-tab-${item}`} type="button" role="tab" aria-selected={tab === item} aria-controls={`skin-studio-panel-${item}`} tabIndex={tab === item ? 0 : -1} disabled={saving || (draft === null && item !== 'library' && item !== 'package')} className={css.tab} onClick={() => { setTab(item) }} onKeyDown={onTabKeyDown}>
               {t(`tab.${item}` as SkinStudioKey)}
             </button>
           ))}
@@ -878,7 +912,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
           <section id="skin-studio-panel-library" role="tabpanel" aria-labelledby="skin-studio-tab-library" className={css.page}>
             <div className={css.pageHeading}>
               <h3>{t('tab.library')}</h3>
-              <Button size="sm" variant="primary" onClick={() => { const skin = controller.create(); setDraft(skin); setAssets(new Map()); setEditingTokens(new Set()); setSelectedId(skin.id); setDirty(true); setSaveStatus('idle'); setTab('basic') }}>{t('library.new')}</Button>
+              <Button size="sm" variant="primary" onClick={() => { ++editRevisionRef.current; const skin = controller.create(); setDraft(skin); setAssets(new Map()); setEditingTokens(new Set()); setSelectedId(skin.id); setDirty(true); setSaveStatus('idle'); setTab('basic') }}>{t('library.new')}</Button>
             </div>
             <div className={css.skinList}>
               {skins.length === 0 && <p className={css.empty}>{t('library.empty')}</p>}
@@ -894,7 +928,7 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
                   <div className={css.itemActions}>
                     {skin.id === activeId ? <span className={css.activeLabel}>{t('library.active')}</span> : <Button size="sm" onClick={() => { void controller.activate(skin.id) }}>{t('library.activate')}</Button>}
                     <Button size="sm" onClick={() => { void beginEdit(skin) }}>{t('library.edit')}</Button>
-                    <Button size="sm" onClick={() => { setSelectedId(skin.id); setDraft(null); setDirty(false); setRightsConfirmed(false); setPackageStatus('idle'); setTab('package'); void controller.cancelPreview() }}>{t('library.package')}</Button>
+                    <Button size="sm" onClick={() => { ++editRevisionRef.current; setSelectedId(skin.id); setDraft(null); setDirty(false); setRightsConfirmed(false); setPackageStatus('idle'); setTab('package'); void controller.cancelPreview() }}>{t('library.package')}</Button>
                     <Button size="sm" onClick={() => { void controller.duplicate(skin.id) }}>{t('library.duplicate')}</Button>
                     <Button size="sm" onClick={() => {
                       if (deleteConfirm === skin.id) { void controller.remove(skin.id); setDeleteConfirm(null) }
@@ -983,7 +1017,6 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
               </div>
               {assetError !== null && <p className={css.error} role="alert">{t(assetError === 'too-large' ? 'basic.wallpaperTooLarge' : 'basic.wallpaperInvalid')}</p>}
               {draft.appearance.componentMedia.length === 0 ? <p className={css.empty}>{t('componentMedia.empty')}</p> : <div className={css.componentMediaList}>{draft.appearance.componentMedia.map(renderComponentMediaRule)}</div>}
-              {hasMediaReadabilityRisk && <div className={css.warningPanel} role="alert"><strong>{t('componentMedia.readabilityTitle')}</strong><p>{t('componentMedia.readabilityDescription')}</p><label><input type="checkbox" checked={mediaReadabilityConfirmed} onChange={event => { setMediaReadabilityConfirmed(event.target.checked) }} />{t('componentMedia.readabilityConfirm')}</label></div>}
             </section>
             {contrastWarning}
             {advancedView === 'guided' ? <div className={css.componentGroups}>{guidedGroups.map(group => <section className={css.tokenGroup} key={group.id}><h3>{t(`advanced.group.${group.id}`)}</h3><div className={css.tokenList}>{group.tokens.map(token => renderTokenEditor(token.name, token))}</div></section>)}{guidedGroups.length === 0 && <p className={css.empty}>{t('advanced.empty')}</p>}</div>
@@ -1040,8 +1073,8 @@ export function SkinStudioRow({ t, useStore, controller }: SkinStudioRowProps) {
             </div>
           </section>
         )}
+        </fieldset>
         </div>
       </Modal>
-    </div>
   )
 }

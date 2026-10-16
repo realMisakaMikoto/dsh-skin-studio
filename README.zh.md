@@ -25,15 +25,15 @@ node scripts/install-desktop.mjs --profile "D:/DSH/profile" --resources "D:/DSH/
 node scripts/install-desktop.mjs --profile "D:/DSH/profile" --resources "D:/DSH/resources"
 ```
 
-桌面版也通过 npm 的原包名 [`dsh-skin-studio@0.7.0`](https://www.npmjs.com/package/dsh-skin-studio/v/0.7.0) 分发，可运行：
+桌面版也通过 npm 的原包名 [`dsh-skin-studio@0.7.1`](https://www.npmjs.com/package/dsh-skin-studio/v/0.7.1) 分发，可运行：
 
 ```sh
-npm pack dsh-skin-studio@0.7.0
-tar -xzf dsh-skin-studio-0.7.0.tgz
+npm pack dsh-skin-studio@0.7.1
+tar -xzf dsh-skin-studio-0.7.1.tgz
 node package/scripts/install-desktop.mjs
 ```
 
-执行安装脚本前请保存工作并完全退出 DSH，安装后保留解压得到的 `package` 文件夹。已有桌面版无需重复安装，GitHub 与 npm 包包含相同编辑器；切换分发渠道时先停用旧的本地皮肤工作室入口，避免同时启用两份。`0.6.0-alpha.1` 及更早版本仍属于历史 WebUI 版本。
+执行安装脚本前请保存工作并完全退出 DSH，安装后保留解压得到的 `package` 文件夹。更新已有安装时，使用新包重新运行安装器，再完整重启 DSH。GitHub 与 npm 任选一种安装渠道；切换渠道时先停用旧的本地皮肤工作室入口，避免同时启用两份。`0.6.0-alpha.1` 及更早版本仍属于历史 WebUI 版本。
 
 ## 六个完整编辑页面
 

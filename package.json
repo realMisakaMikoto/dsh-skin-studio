@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-desktop-skin-studio",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "description": "Desktop-adapted skin studio for DeepSeek Harness: full-interface palettes, wallpaper, per-component media, visual assets, copy and free-text overrides, with .dshskin v5 import/export.",
   "license": "AGPL-3.0-only",

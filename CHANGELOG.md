@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1 - 2026-10-16
+
+- Prevent wallpaper decoration from creating an extra document scroller while preserving independent conversation panel scrolling.
+- Restore original document and body overflow values, including axis-specific priorities, when switching skins or unloading the plugin.
+- Publish the fixed desktop edition under the same 0.7.1 version on GitHub and npm, with updated installation and upgrade instructions.
+- Typecheck, build, package and boot protocol checks pass, with 103 tests across 18 files.
+
 ## 0.7.0 - 2026-10-15
 
 The repository now maintains the Windows desktop edition for DeepSeek Harness 0.2.0-rc.2, replacing the deprecated WebUI-only edition on the default branch. Historical releases remain available.
